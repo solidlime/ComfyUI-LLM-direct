@@ -33,6 +33,12 @@
 - [x] T024：両ノードの generate を on_reasoning 配線に切替（send_progress_text 除去、デバッグ print 除去）
 - [x] T025：README 更新（thinking リアルタイム表示の説明）
 
+## 優先度：中（hf-direct: transformers 直読みノード、2026-08-12）
+- [x] T026：SPEC 更新（機能5 hf-direct）+ #081 事前アーキテクチャ判断（CausalLM フィルタ列挙・スレッド例外伝播・bf16・遅延 import）
+- [x] T027：hf_client.py 作成（build_inputs / run_generate、スレッド例外 errors 集約→ValueError、seed>0 manual_seed、temperature=0.0 greedy）
+- [x] T028：openai_client.py 共通化（split_before_think_end / build_messages 抽出、gguf 版置換）
+- [x] T029：DirectHFPrompt 実装（CausalLM 列挙・1 モデルキャッシュ+gc+empty_cache・TextIteratorStreamer）+ web/llm-direct.js 対象追加 + tests/test_hf_client.py（Fake 注入）+ README 更新
+
 ## 優先度：低
 - [ ] T008：実サーバーでの動作確認（ユーザー環境のローカルサーバー or 公式 API）← ユーザー実行
 - [ ] T013：opencode zen/go サーバー障害の再確認（2026-08-12 時点: chat/completions が全リクエストで 500。クライアント側の問題ではない）

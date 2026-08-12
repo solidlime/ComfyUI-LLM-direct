@@ -11,6 +11,7 @@ the install lives.
 """
 
 import gc
+import json
 import os
 import sys
 from pathlib import Path
@@ -25,6 +26,7 @@ from llama_cpp import Llama
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import openai_client
+import hf_client
 
 NODE_CLASS_MAPPINGS = {}
 NODE_DISPLAY_NAME_MAPPINGS = {}
@@ -33,6 +35,15 @@ _START_STOPS = ("<start_of_turn>", "<|start_of_turn|>", "|start_of_turn|", "_sta
 
 # Same fixed choices as pytraveler/MiniMax-H3-Prompt-Rewriter-ComfyUI.
 _RESOLUTIONS = ("21:9", "16:9", "4:3", "1:1", "3:4", "9:16")
+
+# Optional backend: hf-direct only. gguf/openai nodes keep working when
+# transformers is not installed.
+try:
+    from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
+except ImportError:
+    AutoModelForCausalLM = None
+    AutoTokenizer = None
+    TextIteratorStreamer = None
 
 
 def _register_gguf_folder():
@@ -43,7 +54,14 @@ def _register_gguf_folder():
         folder_paths.add_model_folder_path("llm_gguf", str(gguf_dir))
 
 
+def _register_hf_folder():
+    hf_dir = Path(folder_paths.models_dir) / "LLM"
+    if hf_dir.is_dir():
+        folder_paths.add_model_folder_path("llm_hf", str(hf_dir))
+
+
 _register_gguf_folder()
+_register_hf_folder()
 
 
 def _send_reasoning(text):
@@ -70,6 +88,30 @@ def _send_reasoning(text):
 
 def _gguf_choices():
     return [p for p in folder_paths.get_filename_list("llm_gguf") if p.lower().endswith(".gguf")]
+
+
+def _hf_choices():
+    # Only CausalLM directories: Llava/joycaption/florence-style models do not
+    # load through AutoModelForCausalLM. Light json.load on config.json only.
+    choices = []
+    for base in folder_paths.get_folder_paths("llm_hf"):
+        base = Path(base)
+        if not base.is_dir():
+            continue
+        for entry in sorted(base.iterdir()):
+            if not entry.is_dir():
+                continue
+            config = entry / "config.json"
+            if not config.is_file():
+                continue
+            try:
+                with config.open(encoding="utf-8") as f:
+                    architectures = json.load(f).get("architectures", [])
+            except (OSError, ValueError):
+                continue
+            if any("ForCausalLM" in a for a in architectures):
+                choices.append(entry.name)
+    return choices
 
 
 class DirectGGUFPrompt:
@@ -143,10 +185,7 @@ class DirectGGUFPrompt:
                  n_threads=4, n_batch=256, flash_attn=True, use_mmap=False, seed=0,
                  unload_after_run=False, inject_shape=True):
         llm = self._get_llm(model_path, n_ctx, n_gpu_layers, n_threads, flash_attn, n_batch, use_mmap)
-        messages = []
-        if system_prompt.strip():
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": openai_client.build_user_content(resolution, duration, user_input, inject_shape)})
+        messages = openai_client.build_messages(system_prompt, user_input, resolution, duration, inject_shape)
         # Call the template handler directly so enable_thinking reaches the
         # model's Jinja template (create_chat_completion drops extra kwargs).
         handler = llm._chat_handlers.get("chat_template.default")
@@ -174,12 +213,7 @@ class DirectGGUFPrompt:
             text += piece
             # Send only the thinking part: local models mix reasoning into
             # content, and the display is reasoning-only (B plan).
-            shown = text
-            for end in ("</think>", "<|channel|>final<|message|>", "<channel|>"):
-                if end in shown:
-                    shown = shown.split(end, 1)[0]
-                    break
-            _send_reasoning(shown)
+            _send_reasoning(openai_client.split_before_think_end(text))
         if strip_think:
             text = openai_client.strip_think(text)
         text = openai_client.strip_turn_markers(text)
@@ -222,10 +256,7 @@ class DirectOpenAIPrompt:
                  duration=10, inject_shape=True, enable_thinking=True, reasoning_effort="auto",
                  strip_think=True, temperature=0.6, top_p=0.9, max_tokens=4096, seed=0,
                  timeout=300.0):
-        messages = []
-        if system_prompt.strip():
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": openai_client.build_user_content(resolution, duration, user_input, inject_shape)})
+        messages = openai_client.build_messages(system_prompt, user_input, resolution, duration, inject_shape)
         with httpx.Client(timeout=httpx.Timeout(timeout, connect=10.0)) as client:
             text = openai_client.chat_completion_stream(
                 client, base_url, model, messages, api_key,
@@ -239,11 +270,85 @@ class DirectOpenAIPrompt:
         return (text,)
 
 
+class DirectHFPrompt:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "model": (_hf_choices(),),
+                "system_prompt": ("STRING", {"multiline": True, "default": ""}),
+                "user_input": ("STRING", {"multiline": True}),
+                "resolution": (_RESOLUTIONS, {"default": "9:16"}),
+                "duration": ("INT", {"default": 10, "min": 1, "max": 15}),
+                "inject_shape": ("BOOLEAN", {"default": True}),
+                "strip_think": ("BOOLEAN", {"default": True}),
+                "temperature": ("FLOAT", {"default": 0.6, "min": 0.0, "max": 2.0, "step": 0.01}),
+                "top_p": ("FLOAT", {"default": 0.9, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "max_new_tokens": ("INT", {"default": 1024, "min": 1, "max": 65536}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 2**32 - 1}),
+            },
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("text",)
+    FUNCTION = "generate"
+    CATEGORY = "LLM"
+
+    _cache = {}
+
+    @classmethod
+    def _get_model(cls, model_name):
+        cached = cls._cache.get(model_name)
+        if cached is not None:
+            return cached
+        # One resident model: clear before loading so the previous model's
+        # VRAM is released (and its cached pages emptied) before allocating.
+        cls._cache.clear()
+        gc.collect()
+        if hf_client.torch is not None and hf_client.torch.cuda.is_available():
+            hf_client.torch.cuda.empty_cache()
+        path = str(Path(folder_paths.get_folder_paths("llm_hf")[0]) / model_name)
+        try:
+            dtype = hf_client.torch.bfloat16 if hf_client.torch.cuda.is_available() else hf_client.torch.float32
+            model = AutoModelForCausalLM.from_pretrained(path, device_map="auto", torch_dtype=dtype)
+            tokenizer = AutoTokenizer.from_pretrained(path)
+        except Exception as exc:
+            cls._cache.clear()
+            gc.collect()
+            raise ValueError(
+                "hf-direct: model load failed (VRAM/メモリ不足、より小さいモデルを選択してください)"
+            ) from exc
+        cls._cache[model_name] = (model, tokenizer)
+        return cls._cache[model_name]
+
+    def generate(self, model, system_prompt, user_input, resolution="9:16", duration=10,
+                 inject_shape=True, strip_think=True,
+                 temperature=0.6, top_p=0.9, max_new_tokens=1024, seed=0):
+        if AutoModelForCausalLM is None:
+            # An empty combo never reaches this path, so guard here too.
+            raise ValueError("hf-direct: transformers がインストールされていません")
+        model_obj, tokenizer = self._get_model(model)
+        messages = openai_client.build_messages(system_prompt, user_input, resolution, duration, inject_shape)
+        input_ids = hf_client.build_inputs(tokenizer, messages)
+        streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
+        text = hf_client.run_generate(
+            model_obj, input_ids, streamer, max_new_tokens, temperature, top_p, seed,
+            on_text=lambda t: _send_reasoning(openai_client.split_before_think_end(t)),
+        )
+        if strip_think:
+            text = openai_client.strip_think(text)
+        text = openai_client.strip_turn_markers(text)
+        return (text,)
+
+
 NODE_CLASS_MAPPINGS["DirectGGUFPrompt"] = DirectGGUFPrompt
 NODE_DISPLAY_NAME_MAPPINGS["DirectGGUFPrompt"] = "gguf-direct"
 
 NODE_CLASS_MAPPINGS["DirectOpenAIPrompt"] = DirectOpenAIPrompt
 NODE_DISPLAY_NAME_MAPPINGS["DirectOpenAIPrompt"] = "openai-direct"
+
+NODE_CLASS_MAPPINGS["DirectHFPrompt"] = DirectHFPrompt
+NODE_DISPLAY_NAME_MAPPINGS["DirectHFPrompt"] = "hf-direct"
 
 WEB_DIRECTORY = "./web"
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]

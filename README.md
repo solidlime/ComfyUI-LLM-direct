@@ -4,6 +4,7 @@ LLM 呼び出しをシンプルに直接行う ComfyUI カスタムノード集�
 
 - **gguf-direct**: llama_cpp 直叩きのローカル GGUF 推論ノード
 - **openai-direct**: OpenAI 互換 API を httpx 直叩きするノード
+- **hf-direct**: transformers 直読みのローカル HF モデルノード（CausalLM のみ）
 
 プリセットなし・クリーンアップパイプラインなし。モデルの応答をそのまま返す。
 
@@ -28,6 +29,25 @@ OpenAI 互換の `/chat/completions` エンドポイントを直接叩くノー�
 - `seed` パラメータを拒否するサーバーがある（未対応の互換サーバー等）。その場合 `seed` を 0 にして送信を止めること
 - `enable_thinking` の `thinking` フィールドを受け付けないサーバーでは 400 になる可能性がある。その場合は True に戻すこと
 - o 系モデルは reasoning のみ消費して空応答になることがある。その場合 `max_tokens` を上げるか thinking を止める
+
+## hf-direct
+
+Hugging Face transformers でローカルモデルを直接実行するノード。ストリーミング。
+
+### 使い方
+
+- `model`: `models/LLM` 直下のディレクトリから選択（combo）
+  - **CausalLM モデルのみ対応**: `config.json` の `architectures` に `ForCausalLM` を含むディレクトリのみ列挙（Llava / joycaption / florence 等の vision 系は除外）
+- `system_prompt` / `user_input` / `resolution` / `duration` / `inject_shape`: gguf-direct と同じ shape ヘッダー注入
+- サンプリング: `temperature` / `top_p` / `max_new_tokens` / `seed`（`seed > 0` のとき `torch.manual_seed` で決定性を確保。`temperature=0.0` は greedy になる）
+- モデルは 1 つ常駐、切り替え時に前のモデルを解放（`gc.collect()` + `torch.cuda.empty_cache()`）
+- thinking のリアルタイム表示: openai-direct と同じノード内ウィジェット
+
+### 注意
+
+- **`transformers` のインストールが必要**（`AutoModelForCausalLM` / `AutoTokenizer` / `TextIteratorStreamer`）。未インストール時はノードがエラーを返す
+- モデルに chat template が無い場合のメッセージ整形は transformers のデフォルトに委ねる
+- ロードは `device_map="auto"` + `torch_dtype=torch.bfloat16`（CUDA 時）/ `float32`（CPU 時）
 
 ## requirements
 

@@ -32,7 +32,7 @@ app.registerExtension({
     api.addEventListener("llm_direct_reasoning", onReasoning);
   },
   async beforeRegisterNodeDef(nodeType, nodeData) {
-    if (nodeData.name !== "DirectGGUFPrompt" && nodeData.name !== "DirectOpenAIPrompt") {
+    if (nodeData.name !== "DirectGGUFPrompt" && nodeData.name !== "DirectOpenAIPrompt" && nodeData.name !== "DirectHFPrompt") {
       return;
     }
     const onNodeCreated = nodeType.prototype.onNodeCreated;

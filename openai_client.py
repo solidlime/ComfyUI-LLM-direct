@@ -43,6 +43,23 @@ def build_user_content(resolution, duration, user_input, inject_shape):
     return content
 
 
+def build_messages(system_prompt, user_input, resolution, duration, inject_shape):
+    messages = []
+    if system_prompt.strip():
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": build_user_content(resolution, duration, user_input, inject_shape)})
+    return messages
+
+
+def split_before_think_end(text):
+    # Keep only the thinking part: cut at the first end-of-thought marker.
+    for end in ("</think>", "<|channel|>final<|message|>", "<channel|>"):
+        if end in text:
+            text = text.split(end, 1)[0]
+            break
+    return text
+
+
 def _build_payload(model, messages, temperature, top_p, max_tokens, seed,
                    enable_thinking, reasoning_effort, stream):
     payload = {

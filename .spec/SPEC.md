@@ -26,14 +26,25 @@
   - フロントエンド JS の制約（#081 修正必須）:
     - **テキスト挿入は `textContent` 必須（`innerHTML` 禁止）** — モデル出力は信頼できない外部データ、XSS 境界
     - **表示は置き換えに確定**: `el.textContent = 累積全文`（on_reasoning は累積テキストを渡す設計なので追記は二重表示）
+- [ ] 機能5：transformers 直読みノード（DirectHFPrompt / 表示名 "hf-direct"）の追加
+  - ユーザー要求: 「gguf-directはggufだけ対応だよね？通常モデルにも対応させたいけどできる？」→ **A 案（transformers 直読み）で確定**（2026-08-12 回答。依存追加を承諾済み）
+  - models/LLM 配下の HF モデルディレクトリを folder_paths で登録 → combo 列挙（gguf-direct の _gguf_choices パターン踏襲）
+  - **列挙フィルタ（#081 修正必須）: config.json の architectures に `ForCausalLM` を含むディレクトリのみ**（Llava 系 joycaption / florence は AutoModelForCausalLM でロード不可のため除外。json.load の軽量チェック）
+  - AutoModelForCausalLM + AutoTokenizer（transformers 5.15.0 は venv_cu13 に導入済み・追加インストール不要）
+  - **モデルロード（#081 確定）: `device_map="auto"`（accelerate 1.14.0 導入済み）+ `torch_dtype=torch.bfloat16`（cuda 時）/ float32（cpu 時）**。実モデルのネイティブ dtype と整合（Ampere+ で bf16 がネイティブ演算）
+  - 1 モデル常駐キャッシュ（gguf-direct と同パターン。モデル切替時 clear + gc + **torch.cuda.empty_cache()**（hf は cuda テンソルなので VRAM 競合対策））
+  - ストリーミング表示: TextIteratorStreamer（skip_prompt=True, skip_special_tokens=True）+ threading で generate を実行、streamer から逐次テキスト取得 → **思考終了マーカー（`</think>` / `<|channel|>final<|message|>` / `<channel|>`）出現前のみ `_send_reasoning` に配線**（gguf 版と同じ shown 抽出。返却値は strip_think / strip_turn_markers 適用）
+  - **スレッド例外伝播（#081 修正必須）: generate スレッドの例外（OOM 等）はメインスレッドに自動伝播しない → errors リストに握り、streamer 消費終了 → join → あれば ValueError 集約（`hf-direct: generation failed: <型名>`）。無言終了は最悪の故障形態**
+  - サンプリング入力: max_new_tokens / temperature / top_p / seed（seed=0 は未指定=毎回ランダム。openai 版の seed>0 契約と整合）
 
 ## 非機能要件
 - パフォーマンス：非ストリーミング。タイムアウト必須
 - セキュリティ：APIキーをログ・エラーメッセージに出さない。エラー出力に URL 全体・ヘッダー・ボディを含めない
 - 制約条件：openai パッケージを追加しない（httpx のみ）。ComfyUI import を含まないモジュールに分離し単体テスト可能にする
+- 制約条件（機能5）: transformers の導入を承諾済み（venv_cu13 に 5.15.0 導入済み）。transformers/torch は **ノードファイル内で遅延 import**（ComfyUI 起動時に無条件ロードしない。gguf ノードの llama_cpp と同じ扱い）
 
 ## 技術構成
-- 言語・フレームワーク：Python / httpx 0.28.1（導入済み・推移的依存）/ pytest 9.0.2
+- 言語・フレームワーク：Python / httpx 0.28.1（導入済み・推移的依存）/ pytest 9.0.2 / transformers 5.15.0 + torch 2.11.0+cu130（機能5・venv_cu13 導入済み）
 - インフラ・環境：ComfyUI カスタムノード（Python 3.12）
 - 外部サービス・API：OpenAI 互換 /chat/completions
 
@@ -87,8 +98,21 @@
 - strip_think 等価性ゴールデンコーパス: LFM2.5（`</think>`）/ Qwen（`<think>...</think>`）/ GPT-OSS（`<|channel|>final<|message|>`）/ Gemma4（`<channel|>`）/ マーカー混在 / マーカーなし の各ケースで旧インライン実装とヘルパーが同一出力
 - chat_completion: 200 正常 / 400 エラー→ValueError / タイムアウト→ValueError / content=None→ValueError / seed>0 で payload に seed 含む / api_key が Authorization ヘッダーに載る
 
+### ノード `DirectHFPrompt`（機能5）
+- INPUT_TYPES required: model（combo: models/LLM 配下の HF モデルディレクトリ）, system_prompt, user_input, resolution, duration, inject_shape, strip_think, max_new_tokens, temperature, top_p, seed
+- モデル列挙: `folder_paths.get_folder_paths("llm_models")` 相当で models/LLM 配下の `config.json` を持つディレクトリを列挙（GGUF と同居。gguf の _gguf_choices と同方式で combo 化）
+- モデルロード: `AutoModelForCausalLM.from_pretrained(path, torch_dtype=torch.bfloat16 if cuda else torch.float32, device_map="auto")` — **#081 事前判断で確定**（accelerate 1.14.0 導入済み。float16 ではなく bf16: 実モデルのネイティブ dtype と整合、Ampere+ でネイティブ演算）
+- キャッシュ: 1 モデル常駐（gguf と同じ。選択変更時 clear + gc.collect + **torch.cuda.empty_cache()**）
+- 生成: `generate(input_ids, max_new_tokens, temperature, top_p, seed, streamer=TextIteratorStreamer(...))` を別スレッドで実行。streamer イテレーションで逐次テキスト取得
+- thinking 表示: gguf 版と同じ shown 抽出（思考終了マーカー出現前のみ `_send_reasoning`）。返却値は strip_think / strip_turn_markers / build_user_content ヘルパー再利用
+- エラー契約: transformers/torch の例外は ValueError に集約（ユーザー可読メッセージ。パスを含まない）
+- RETURN_TYPES: ("STRING",) / RETURN_NAMES: ("text",) / FUNCTION: "generate" / CATEGORY: "LLM"
+- 登録: NODE_CLASS_MAPPINGS["DirectHFPrompt"] / 表示名 "hf-direct"
+- transformers/torch import はノードクラス定義前に try/except でガード（不在時は InputTypes で model を空 combo にし、generate で明確なエラーメッセージ）
+
 ## データ構造・インターフェース
 - ノード: `DirectOpenAIPrompt` / 表示名 "openai-direct" / CATEGORY "LLM" / RETURN STRING
+- ノード: `DirectHFPrompt` / 表示名 "hf-direct" / CATEGORY "LLM" / RETURN STRING（機能5）
 - 入力: base_url, model, system_prompt, user_input, api_key, resolution, duration, inject_shape, strip_think, temperature, top_p, max_tokens, seed, timeout
 - 共通ヘルパー: `openai_client.py`（strip_think / strip_turn_markers / build_user_content / chat_completion）
 
@@ -96,3 +120,5 @@
 - 新規: `openai_client.py`、`tests/test_openai_client.py`
 - 変更: `__init__.py`（ヘルパー使用に切替 + DirectOpenAIPrompt 追加 + 登録）
 - 更新: `README.md`（使い方、env var 推奨、seed 拒否サーバー注記）
+- 新規（機能5）: `hf_client.py`（transformers 直読みの純粋ロジック。ComfyUI import なし・単体テスト可能）/ `tests/test_hf_client.py`
+- 変更（機能5）: `__init__.py`（DirectHFPrompt 追加 + 登録）
