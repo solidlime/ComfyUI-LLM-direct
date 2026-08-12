@@ -1,11 +1,32 @@
 import { app } from "../../scripts/app.js";
-import { api } from "../../scripts/api.js";
 
 // Display node id -> DOM element for live reasoning text.
 const reasoningWidgets = new Map();
 
+// Do NOT import { api } from "../../scripts/api.js": that shim binds
+// window.comfyAPI at module-eval time, which can run before the API bundle is
+// ready and yield undefined (widgets still show, but the event listener is
+// never registered -> "Unknown message type" in the console). Resolve lazily
+// inside setup(), which runs after the frontend is fully initialized.
+let reasoningApi = null;
+
+function onReasoning(e) {
+  const el = reasoningWidgets.get(String(e.detail.node));
+  if (el) {
+    el.textContent = e.detail.text;  // 置き換え（追記だと二重表示になる）。innerHTML は XSS 境界なので禁止
+  }
+}
+
 app.registerExtension({
   name: "llm-direct.reasoning",
+  async setup() {
+    reasoningApi = window.comfyAPI?.api?.api;
+    if (!reasoningApi) {
+      console.error("[llm-direct] ComfyAPI not available; reasoning display disabled");
+      return;
+    }
+    reasoningApi.addEventListener("llm_direct_reasoning", onReasoning);
+  },
   async beforeRegisterNodeDef(nodeType, nodeData) {
     if (nodeData.name !== "DirectGGUFPrompt" && nodeData.name !== "DirectOpenAIPrompt") {
       return;
@@ -26,11 +47,4 @@ app.registerExtension({
       reasoningWidgets.delete(String(this.id));
     };
   },
-});
-
-api.addEventListener("llm_direct_reasoning", (e) => {
-  const el = reasoningWidgets.get(String(e.detail.node));
-  if (el) {
-    el.textContent = e.detail.text;  // 置き換え（追記だと二重表示になる）。innerHTML は XSS 境界なので禁止
-  }
 });
