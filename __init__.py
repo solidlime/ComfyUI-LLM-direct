@@ -188,7 +188,7 @@ class DirectOpenAIPrompt:
         if system_prompt.strip():
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": openai_client.build_user_content(resolution, duration, user_input, inject_shape)})
-        with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=timeout)) as client:
+        with httpx.Client(timeout=httpx.Timeout(timeout, connect=10.0)) as client:
             text = openai_client.chat_completion(client, base_url, model, messages, api_key,
                                                  temperature, top_p, max_tokens, seed,
                                                  enable_thinking=enable_thinking,

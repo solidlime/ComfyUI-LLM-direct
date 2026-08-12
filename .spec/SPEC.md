@@ -36,7 +36,7 @@
   - **client を引数で受け取る**（httpx.Client 注入可能 → MockTransport でテスト可能。内部で Client を生成しない）
   - `url = f"{base_url.rstrip('/')}/chat/completions"`
   - api_key 空なら `os.environ.get("OPENAI_API_KEY", "")`。キーがあれば `Authorization: Bearer <key>`
-  - タイムアウトは呼び出し側で `httpx.Timeout(connect=10.0, read=timeout)`（read は分単位、デフォルト 300.0）
+  - タイムアウトは呼び出し側で `httpx.Timeout(timeout, connect=10.0)`（read は分単位、デフォルト 300.0。httpx.Timeout はデフォルトか 4 パラメータ全部の指定が必須: 2 パラメータだけだと ValueError）
   - thinking 制御（選択時のみ追加フィールド、デフォルトでは payload 不変）:
     - `enable_thinking=False` → `"thinking": {"type": "disabled"}`
     - `enable_thinking=True` かつ `reasoning_effort != "auto"` → `"reasoning_effort": <値>`
