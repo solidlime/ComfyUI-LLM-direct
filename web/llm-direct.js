@@ -14,9 +14,11 @@ function onReasoning(e) {
   const node = window.app?.graph?.getNodeById(String(e.detail.node));
   if (!node) return;
   const widget = node.widgets?.find((w) => w.name === "reasoning");
-  if (widget?.element) {
-    widget.element.textContent = e.detail.text;  // 置き換え（追記だと二重表示）。innerHTML は XSS 境界なので禁止
-  }
+  if (!widget?.element) return;
+  const el = widget.element;
+  const stickToBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 30;
+  el.textContent = e.detail.text;  // 置き換え（追記だと二重表示）。innerHTML は XSS 境界なので禁止
+  if (stickToBottom) el.scrollTop = el.scrollHeight;  // 最下部表示中のみ追従（過去ログを読んでいる最中は邪魔しない）
 }
 
 app.registerExtension({
