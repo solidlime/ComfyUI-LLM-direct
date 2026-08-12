@@ -17,6 +17,14 @@
 - [x] T011：DirectOpenAIPrompt に入力 2 つ追加（generate 配線含む）
 - [x] T012：README 更新（thinking 制御の説明と opencode zen/go 注記）
 
+## 優先度：中（ストリーミング表示）
+- [x] T014：SPEC 更新（機能4 ストリーミングリアルタイム表示、chat_completion_stream 契約）
+- [x] T015：chat_completion_stream 実装 + SSE パーステスト（MockTransport: チャンク累積 / [DONE] / エラー時 ValueError / on_chunk 呼び出し）
+- [x] T016：DirectOpenAIPrompt の generate を stream 化 + send_progress_text 配線
+- [x] T017：DirectGGUFPrompt の generate を stream 化 + send_progress_text 配線（llama_cpp 0.3.34 は chat handler が stream 対応）
+- [x] T018：README 更新（リアルタイム表示の説明）
+- [x] T019：#081 事前アーキテクチャ判断（本格トリアージ: UI 表示機構 + 複数ファイル）
+
 ## 優先度：低
 - [ ] T008：実サーバーでの動作確認（ユーザー環境のローカルサーバー or 公式 API）← ユーザー実行
 - [ ] T013：opencode zen/go サーバー障害の再確認（2026-08-12 時点: chat/completions が全リクエストで 500。クライアント側の問題ではない）
