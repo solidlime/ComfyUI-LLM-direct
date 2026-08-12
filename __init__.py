@@ -164,6 +164,8 @@ class DirectOpenAIPrompt:
                 "resolution": (_RESOLUTIONS, {"default": "9:16"}),
                 "duration": ("INT", {"default": 10, "min": 1, "max": 15}),
                 "inject_shape": ("BOOLEAN", {"default": True}),
+                "enable_thinking": ("BOOLEAN", {"default": True}),
+                "reasoning_effort": (("auto", "low", "medium", "high", "max"), {"default": "auto"}),
                 "strip_think": ("BOOLEAN", {"default": True}),
                 "temperature": ("FLOAT", {"default": 0.6, "min": 0.0, "max": 2.0, "step": 0.01}),
                 "top_p": ("FLOAT", {"default": 0.9, "min": 0.0, "max": 1.0, "step": 0.01}),
@@ -179,15 +181,18 @@ class DirectOpenAIPrompt:
     CATEGORY = "LLM"
 
     def generate(self, base_url, model, system_prompt, user_input, api_key="", resolution="9:16",
-                 duration=10, inject_shape=True, strip_think=True, temperature=0.6, top_p=0.9,
-                 max_tokens=4096, seed=0, timeout=300.0):
+                 duration=10, inject_shape=True, enable_thinking=True, reasoning_effort="auto",
+                 strip_think=True, temperature=0.6, top_p=0.9, max_tokens=4096, seed=0,
+                 timeout=300.0):
         messages = []
         if system_prompt.strip():
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": openai_client.build_user_content(resolution, duration, user_input, inject_shape)})
         with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=timeout)) as client:
             text = openai_client.chat_completion(client, base_url, model, messages, api_key,
-                                                 temperature, top_p, max_tokens, seed)
+                                                 temperature, top_p, max_tokens, seed,
+                                                 enable_thinking=enable_thinking,
+                                                 reasoning_effort=reasoning_effort)
         if strip_think:
             text = openai_client.strip_think(text)
         text = openai_client.strip_turn_markers(text)

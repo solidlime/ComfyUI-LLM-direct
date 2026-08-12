@@ -43,7 +43,8 @@ def build_user_content(resolution, duration, user_input, inject_shape):
 
 
 def chat_completion(client, base_url, model, messages, api_key="", temperature=0.6,
-                    top_p=0.9, max_tokens=4096, seed=0):
+                    top_p=0.9, max_tokens=4096, seed=0, enable_thinking=True,
+                    reasoning_effort="auto"):
     url = f"{base_url.rstrip('/')}/chat/completions"
     if not api_key:
         api_key = os.environ.get("OPENAI_API_KEY", "")
@@ -60,6 +61,10 @@ def chat_completion(client, base_url, model, messages, api_key="", temperature=0
     }
     if seed > 0:
         payload["seed"] = seed
+    if not enable_thinking:
+        payload["thinking"] = {"type": "disabled"}
+    elif reasoning_effort != "auto":
+        payload["reasoning_effort"] = reasoning_effort
     try:
         resp = client.post(url, headers=headers, json=payload)
     except httpx.HTTPError as exc:

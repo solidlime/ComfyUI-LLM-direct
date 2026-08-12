@@ -11,8 +11,15 @@
 ## 優先度：中
 - [x] T007：README 更新（openai-direct の使い方、env var 推奨、seed 注記）
 
+## 優先度：中
+- [x] T009：SPEC 更新（thinking 制御: enable_thinking + reasoning_effort）
+- [ ] T010：chat_completion に enable_thinking / reasoning_effort 追加 + payload テスト
+- [ ] T011：DirectOpenAIPrompt に入力 2 つ追加（generate 配線含む）
+- [ ] T012：README 更新（thinking 制御の説明と opencode zen/go 注記）
+
 ## 優先度：低
 - [ ] T008：実サーバーでの動作確認（ユーザー環境のローカルサーバー or 公式 API）← ユーザー実行
+- [ ] T013：opencode zen/go サーバー障害の再確認（2026-08-12 時点: chat/completions が全リクエストで 500。クライアント側の問題ではない）
 
 ## 完了済み
 - [x] 初期セットアップ（make_project_skill）

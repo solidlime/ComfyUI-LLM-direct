@@ -19,10 +19,13 @@ OpenAI 互換の `/chat/completions` エンドポイントを直接叩くノー�
   - **環境変数を推奨**: ノード入力を指定すると API キーが workflow JSON に保存されるため
 - サンプリング: `temperature` / `top_p` / `max_tokens` / `seed`（`seed > 0` のときだけ送信）
 - `timeout`: 応答停止対策の読み取りタイムアウト（秒、デフォルト 300）
+- `enable_thinking`: False で DeepSeek 系の思考をオフ（`thinking: {"type": "disabled"}` を送信）
+- `reasoning_effort`: auto（送信しない）/ low / medium / high / max から選択。思考の程度を制御（medium は opencode 系のみ。DeepSeek 公式は low/high/max のみ対応）
 
 ### 注意
 
 - `seed` パラメータを拒否するサーバーがある（未対応の互換サーバー等）。その場合 `seed` を 0 にして送信を止めること
+- `enable_thinking` の `thinking` フィールドを受け付けないサーバーでは 400 になる可能性がある。その場合は True に戻すこと
 - o 系モデルは reasoning のみ消費して空応答になることがある。その場合 `max_tokens` を上げるか thinking を止める
 
 ## requirements

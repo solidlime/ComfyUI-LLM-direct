@@ -201,3 +201,35 @@ def test_chat_completion_trailing_slash_url():
     client = _ok_client(handler)
     chat_completion(client, "http://x:8080/v1/", "m", [])
     assert seen["url"] == "http://x:8080/v1/chat/completions"
+
+
+def test_chat_completion_thinking_disabled():
+    handler, seen = _capture()
+    client = _ok_client(handler)
+    chat_completion(client, "http://x:8080/v1", "m", [], enable_thinking=False)
+    assert json.loads(seen["body"])["thinking"] == {"type": "disabled"}
+
+
+def test_chat_completion_reasoning_effort():
+    handler, seen = _capture()
+    client = _ok_client(handler)
+    chat_completion(client, "http://x:8080/v1", "m", [], reasoning_effort="high")
+    assert json.loads(seen["body"])["reasoning_effort"] == "high"
+
+
+def test_chat_completion_thinking_disabled_wins_over_effort():
+    handler, seen = _capture()
+    client = _ok_client(handler)
+    chat_completion(client, "http://x:8080/v1", "m", [], enable_thinking=False, reasoning_effort="high")
+    body = json.loads(seen["body"])
+    assert body["thinking"] == {"type": "disabled"}
+    assert "reasoning_effort" not in body
+
+
+def test_chat_completion_defaults_add_no_fields():
+    handler, seen = _capture()
+    client = _ok_client(handler)
+    chat_completion(client, "http://x:8080/v1", "m", [])
+    body = json.loads(seen["body"])
+    assert "thinking" not in body
+    assert "reasoning_effort" not in body

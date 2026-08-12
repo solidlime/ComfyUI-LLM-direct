@@ -12,6 +12,10 @@
   - 非ストリーミング + タイムアウト（応答停止対策）
   - 思考マーカー除去・ターンマーカー除去は共通ヘルパーを再利用
 - [ ] 機能2：gguf-direct の strip ロジックを共通ヘルパーへ抽出（**挙動不変**）
+- [ ] 機能3：openai-direct に thinking 制御を追加（gguf-direct の enable_thinking に相当）
+  - `enable_thinking` BOOLEAN: False なら `thinking: {"type": "disabled"}` を送信（DeepSeek 系の思考オフ方式。opencode zen/go の workaround と同じ）
+  - `reasoning_effort` combo（auto/low/medium/high/max）: auto 以外なら `reasoning_effort` を送信（程度の切り替え）
+  - 未知フィールドを常時送らない（opencode zen/go は STRICT 検証で未知フィールドに 400 を返す。選択時のみ送信で回避）
 
 ## 非機能要件
 - パフォーマンス：非ストリーミング。タイムアウト必須
@@ -28,11 +32,14 @@
 ### 共通ヘルパー `openai_client.py`（ComfyUI import なし）
 - `strip_think(text)` / `strip_turn_markers(text)`: 既存 `__init__.py` のロジックを**逐語移動**（順序・split 意味論を変更しない）。正規表現の冗長な代替は抽出時に直さない
 - `build_user_content(resolution, duration, user_input, inject_shape)`: resolution/duration ヘッダー組立（2ノード共通化、ドリフト防止）
-- `chat_completion(client, base_url, model, messages, api_key, temperature, top_p, max_tokens, seed)`:
+- `chat_completion(client, base_url, model, messages, api_key, temperature, top_p, max_tokens, seed, enable_thinking=True, reasoning_effort="auto")`:
   - **client を引数で受け取る**（httpx.Client 注入可能 → MockTransport でテスト可能。内部で Client を生成しない）
   - `url = f"{base_url.rstrip('/')}/chat/completions"`
   - api_key 空なら `os.environ.get("OPENAI_API_KEY", "")`。キーがあれば `Authorization: Bearer <key>`
   - タイムアウトは呼び出し側で `httpx.Timeout(connect=10.0, read=timeout)`（read は分単位、デフォルト 300.0）
+  - thinking 制御（選択時のみ追加フィールド、デフォルトでは payload 不変）:
+    - `enable_thinking=False` → `"thinking": {"type": "disabled"}`
+    - `enable_thinking=True` かつ `reasoning_effort != "auto"` → `"reasoning_effort": <値>`
   - エラー契約（全て ValueError に集約、詳細は URL/ヘッダー/ボディを含めない）:
     - httpx.HTTPError（timeout 含む）→ `openai-direct: request failed: <概要>`
     - 非 200 → `openai-direct: API error <status>`
@@ -41,7 +48,9 @@
 - `_START_STOPS` は gguf 専用なのでヘルパーに入れない
 
 ### ノード `DirectOpenAIPrompt`
-- INPUT_TYPES required: base_url, model, system_prompt, user_input, api_key, resolution, duration, inject_shape, strip_think, temperature, top_p, max_tokens, seed, timeout
+- INPUT_TYPES required: base_url, model, system_prompt, user_input, api_key, resolution, duration, inject_shape, enable_thinking, reasoning_effort, strip_think, temperature, top_p, max_tokens, seed, timeout
+- enable_thinking: BOOLEAN デフォルト True（gguf-direct と同名だが、API 版はデフォルト True: オフ時は DeepSeek 専用フィールドを送るため、他のサーバーで 400 になるリスクを避けデフォルト送信しない）
+- reasoning_effort: combo ("auto", "low", "medium", "high", "max") デフォルト "auto"
 - timeout: FLOAT デフォルト 300.0, min 5.0, max 3600.0
 - RETURN_TYPES: ("STRING",) / RETURN_NAMES: ("text",) / FUNCTION: "generate" / CATEGORY: "LLM"
 - 登録: NODE_CLASS_MAPPINGS["DirectOpenAIPrompt"] / 表示名 "openai-direct"
