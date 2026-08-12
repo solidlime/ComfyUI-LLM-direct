@@ -36,7 +36,7 @@ _START_STOPS = ("<start_of_turn>", "<|start_of_turn|>", "|start_of_turn|", "_sta
 # Same fixed choices as pytraveler/MiniMax-H3-Prompt-Rewriter-ComfyUI.
 _RESOLUTIONS = ("21:9", "16:9", "4:3", "1:1", "3:4", "9:16")
 
-# Optional backend: hf-direct only. gguf/openai nodes keep working when
+# Optional backend: hf-llm-direct only. gguf/openai nodes keep working when
 # transformers is not installed.
 try:
     from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
@@ -114,7 +114,7 @@ def _hf_choices():
     return choices
 
 
-class DirectGGUFPrompt:
+class GGUFLLMDirect:
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -223,7 +223,7 @@ class DirectGGUFPrompt:
         return (text,)
 
 
-class DirectOpenAIPrompt:
+class APILLMDirect:
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -270,7 +270,7 @@ class DirectOpenAIPrompt:
         return (text,)
 
 
-class DirectHFPrompt:
+class HFLLMDirect:
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -316,7 +316,7 @@ class DirectHFPrompt:
             cls._cache.clear()
             gc.collect()
             raise ValueError(
-                "hf-direct: model load failed (VRAM/メモリ不足、より小さいモデルを選択してください)"
+                "hf-llm-direct: model load failed (VRAM/メモリ不足、より小さいモデルを選択してください)"
             ) from exc
         cls._cache[model_name] = (model, tokenizer)
         return cls._cache[model_name]
@@ -326,7 +326,7 @@ class DirectHFPrompt:
                  temperature=0.6, top_p=0.9, max_new_tokens=1024, seed=0):
         if AutoModelForCausalLM is None:
             # An empty combo never reaches this path, so guard here too.
-            raise ValueError("hf-direct: transformers がインストールされていません")
+            raise ValueError("hf-llm-direct: transformers がインストールされていません")
         model_obj, tokenizer = self._get_model(model)
         messages = openai_client.build_messages(system_prompt, user_input, resolution, duration, inject_shape)
         input_ids = hf_client.build_inputs(tokenizer, messages)
@@ -341,14 +341,14 @@ class DirectHFPrompt:
         return (text,)
 
 
-NODE_CLASS_MAPPINGS["DirectGGUFPrompt"] = DirectGGUFPrompt
-NODE_DISPLAY_NAME_MAPPINGS["DirectGGUFPrompt"] = "gguf-direct"
+NODE_CLASS_MAPPINGS["GGUFLLMDirect"] = GGUFLLMDirect
+NODE_DISPLAY_NAME_MAPPINGS["GGUFLLMDirect"] = "gguf-llm-direct"
 
-NODE_CLASS_MAPPINGS["DirectOpenAIPrompt"] = DirectOpenAIPrompt
-NODE_DISPLAY_NAME_MAPPINGS["DirectOpenAIPrompt"] = "openai-direct"
+NODE_CLASS_MAPPINGS["APILLMDirect"] = APILLMDirect
+NODE_DISPLAY_NAME_MAPPINGS["APILLMDirect"] = "api-llm-direct"
 
-NODE_CLASS_MAPPINGS["DirectHFPrompt"] = DirectHFPrompt
-NODE_DISPLAY_NAME_MAPPINGS["DirectHFPrompt"] = "hf-direct"
+NODE_CLASS_MAPPINGS["HFLLMDirect"] = HFLLMDirect
+NODE_DISPLAY_NAME_MAPPINGS["HFLLMDirect"] = "hf-llm-direct"
 
 WEB_DIRECTORY = "./web"
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]

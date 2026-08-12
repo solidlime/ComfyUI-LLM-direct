@@ -1,18 +1,20 @@
 # SPEC - 技術仕様・要件定義
 
+> **2026-08-12 改名**: 旧名 `gguf-direct` / `openai-direct` / `hf-direct` → `gguf-llm-direct` / `api-llm-direct` / `hf-llm-direct`（完全置き換え、旧名エイリアスなし）。クラス名は GGUFLLMDirect / APILLMDirect / HFLLMDirect。
+
 ## 機能要件
-- [ ] 機能1：openai-direct ノード（DirectOpenAIPrompt）の追加
+- [ ] 機能1：api-llm-direct ノード（APILLMDirect）の追加
   - OpenAI 互換 API（`{base_url}/chat/completions`）を httpx で直接叩く
   - base_url 入力でローカルサーバー / 公式 API を切り替え（デフォルト: `http://127.0.0.1:8080/v1`）
   - api_key 入力（空なら環境変数 OPENAI_API_KEY を参照、ローカルは空で可）
   - model は手入力 STRING
   - system_prompt / user_input（multiline）
-  - gguf-direct と同じ: resolution / duration / inject_shape / strip_think
+  - gguf-llm-direct と同じ: resolution / duration / inject_shape / strip_think
   - サンプリング: temperature / top_p / max_tokens / seed（seed > 0 のときだけ送信）
   - 非ストリーミング + タイムアウト（応答停止対策）
   - 思考マーカー除去・ターンマーカー除去は共通ヘルパーを再利用
-- [ ] 機能2：gguf-direct の strip ロジックを共通ヘルパーへ抽出（**挙動不変**）
-- [ ] 機能3：openai-direct に thinking 制御を追加（gguf-direct の enable_thinking に相当）
+- [ ] 機能2：gguf-llm-direct の strip ロジックを共通ヘルパーへ抽出（**挙動不変**）
+- [ ] 機能3：api-llm-direct に thinking 制御を追加（gguf-llm-direct の enable_thinking に相当）
   - `enable_thinking` BOOLEAN: False なら `thinking: {"type": "disabled"}` を送信（DeepSeek 系の思考オフ方式。opencode zen/go の workaround と同じ）
   - `reasoning_effort` combo（auto/low/medium/high/max）: auto 以外なら `reasoning_effort` を送信（程度の切り替え）
   - 未知フィールドを常時送らない（opencode zen/go は STRICT 検証で未知フィールドに 400 を返す。選択時のみ送信で回避）
@@ -26,15 +28,15 @@
   - フロントエンド JS の制約（#081 修正必須）:
     - **テキスト挿入は `textContent` 必須（`innerHTML` 禁止）** — モデル出力は信頼できない外部データ、XSS 境界
     - **表示は置き換えに確定**: `el.textContent = 累積全文`（on_reasoning は累積テキストを渡す設計なので追記は二重表示）
-- [ ] 機能5：transformers 直読みノード（DirectHFPrompt / 表示名 "hf-direct"）の追加
-  - ユーザー要求: 「gguf-directはggufだけ対応だよね？通常モデルにも対応させたいけどできる？」→ **A 案（transformers 直読み）で確定**（2026-08-12 回答。依存追加を承諾済み）
-  - models/LLM 配下の HF モデルディレクトリを folder_paths で登録 → combo 列挙（gguf-direct の _gguf_choices パターン踏襲）
+- [ ] 機能5：transformers 直読みノード（HFLLMDirect / 表示名 "hf-llm-direct"）の追加
+  - ユーザー要求: 「gguf-llm-directはggufだけ対応だよね？通常モデルにも対応させたいけどできる？」→ **A 案（transformers 直読み）で確定**（2026-08-12 回答。依存追加を承諾済み）
+  - models/LLM 配下の HF モデルディレクトリを folder_paths で登録 → combo 列挙（gguf-llm-direct の _gguf_choices パターン踏襲）
   - **列挙フィルタ（#081 修正必須）: config.json の architectures に `ForCausalLM` を含むディレクトリのみ**（Llava 系 joycaption / florence は AutoModelForCausalLM でロード不可のため除外。json.load の軽量チェック）
   - AutoModelForCausalLM + AutoTokenizer（transformers 5.15.0 は venv_cu13 に導入済み・追加インストール不要）
   - **モデルロード（#081 確定）: `device_map="auto"`（accelerate 1.14.0 導入済み）+ `torch_dtype=torch.bfloat16`（cuda 時）/ float32（cpu 時）**。実モデルのネイティブ dtype と整合（Ampere+ で bf16 がネイティブ演算）
-  - 1 モデル常駐キャッシュ（gguf-direct と同パターン。モデル切替時 clear + gc + **torch.cuda.empty_cache()**（hf は cuda テンソルなので VRAM 競合対策））
+  - 1 モデル常駐キャッシュ（gguf-llm-direct と同パターン。モデル切替時 clear + gc + **torch.cuda.empty_cache()**（hf は cuda テンソルなので VRAM 競合対策））
   - ストリーミング表示: TextIteratorStreamer（skip_prompt=True, skip_special_tokens=True）+ threading で generate を実行、streamer から逐次テキスト取得 → **思考終了マーカー（`</think>` / `<|channel|>final<|message|>` / `<channel|>`）出現前のみ `_send_reasoning` に配線**（gguf 版と同じ shown 抽出。返却値は strip_think / strip_turn_markers 適用）
-  - **スレッド例外伝播（#081 修正必須）: generate スレッドの例外（OOM 等）はメインスレッドに自動伝播しない → errors リストに握り、streamer 消費終了 → join → あれば ValueError 集約（`hf-direct: generation failed: <型名>`）。無言終了は最悪の故障形態**
+  - **スレッド例外伝播（#081 修正必須）: generate スレッドの例外（OOM 等）はメインスレッドに自動伝播しない → errors リストに握り、streamer 消費終了 → join → あれば ValueError 集約（`hf-llm-direct: generation failed: <型名>`）。無言終了は最悪の故障形態**
   - サンプリング入力: max_new_tokens / temperature / top_p / seed（seed=0 は未指定=毎回ランダム。openai 版の seed>0 契約と整合）
 
 ## 非機能要件
@@ -62,10 +64,10 @@
     - `enable_thinking=False` → `"thinking": {"type": "disabled"}`
     - `enable_thinking=True` かつ `reasoning_effort != "auto"` → `"reasoning_effort": <値>`
   - エラー契約（全て ValueError に集約、詳細は URL/ヘッダー/ボディを含めない）:
-    - httpx.HTTPError（timeout 含む）→ `openai-direct: request failed: <概要>`
-    - 非 200 → `openai-direct: API error <status>`
+    - httpx.HTTPError（timeout 含む）→ `api-llm-direct: request failed: <概要>`
+    - 非 200 → `api-llm-direct: API error <status>`
     - `content` が None（o 系モデルが reasoning のみ消費）→ ユーザー可読メッセージ
-    - 応答形状不正（KeyError/IndexError/JSON 失敗）→ `openai-direct: unexpected response`
+    - 応答形状不正（KeyError/IndexError/JSON 失敗）→ `api-llm-direct: unexpected response`
 - `_START_STOPS` は gguf 専用なのでヘルパーに入れない
 - `chat_completion_stream(client, base_url, model, messages, api_key, temperature, top_p, max_tokens, seed, enable_thinking=True, reasoning_effort="auto", on_reasoning=None, on_chunk=None)`:
   - `stream=True` で POST、`with client.stream("POST", ...)` + `iter_lines()` で SSE パース
@@ -86,19 +88,19 @@
 - 表示失敗は生成を中断しない（try/except で隔離。表示はベストエフォート）
 - gguf 版: **思考終了マーカー（`</think>` / `<|channel|>final<|message|>` / `<channel|>`）出現前のみ抽出**して送る（llama_cpp は thinking が delta.content に混在するため。返却用 text は `shown` 変数と分離し、strip_think / strip_turn_markers は従来どおり最終返却値のみに適用）
 
-### ノード `DirectOpenAIPrompt`
+### ノード `APILLMDirect`
 - INPUT_TYPES required: base_url, model, system_prompt, user_input, api_key, resolution, duration, inject_shape, enable_thinking, reasoning_effort, strip_think, temperature, top_p, max_tokens, seed, timeout
-- enable_thinking: BOOLEAN デフォルト True（gguf-direct と同名だが、API 版はデフォルト True: オフ時は DeepSeek 専用フィールドを送るため、他のサーバーで 400 になるリスクを避けデフォルト送信しない）
+- enable_thinking: BOOLEAN デフォルト True（gguf-llm-direct と同名だが、API 版はデフォルト True: オフ時は DeepSeek 専用フィールドを送るため、他のサーバーで 400 になるリスクを避けデフォルト送信しない）
 - reasoning_effort: combo ("auto", "low", "medium", "high", "max") デフォルト "auto"
 - timeout: FLOAT デフォルト 300.0, min 5.0, max 3600.0
 - RETURN_TYPES: ("STRING",) / RETURN_NAMES: ("text",) / FUNCTION: "generate" / CATEGORY: "LLM"
-- 登録: NODE_CLASS_MAPPINGS["DirectOpenAIPrompt"] / 表示名 "openai-direct"
+- 登録: NODE_CLASS_MAPPINGS["APILLMDirect"] / 表示名 "api-llm-direct"
 
 ### テスト `tests/test_openai_client.py`（pytest + httpx MockTransport）
 - strip_think 等価性ゴールデンコーパス: LFM2.5（`</think>`）/ Qwen（`<think>...</think>`）/ GPT-OSS（`<|channel|>final<|message|>`）/ Gemma4（`<channel|>`）/ マーカー混在 / マーカーなし の各ケースで旧インライン実装とヘルパーが同一出力
 - chat_completion: 200 正常 / 400 エラー→ValueError / タイムアウト→ValueError / content=None→ValueError / seed>0 で payload に seed 含む / api_key が Authorization ヘッダーに載る
 
-### ノード `DirectHFPrompt`（機能5）
+### ノード `HFLLMDirect`（機能5）
 - INPUT_TYPES required: model（combo: models/LLM 配下の HF モデルディレクトリ）, system_prompt, user_input, resolution, duration, inject_shape, strip_think, max_new_tokens, temperature, top_p, seed
 - モデル列挙: `folder_paths.get_folder_paths("llm_models")` 相当で models/LLM 配下の `config.json` を持つディレクトリを列挙（GGUF と同居。gguf の _gguf_choices と同方式で combo 化）
 - モデルロード: `AutoModelForCausalLM.from_pretrained(path, torch_dtype=torch.bfloat16 if cuda else torch.float32, device_map="auto")` — **#081 事前判断で確定**（accelerate 1.14.0 導入済み。float16 ではなく bf16: 実モデルのネイティブ dtype と整合、Ampere+ でネイティブ演算）
@@ -107,18 +109,18 @@
 - thinking 表示: gguf 版と同じ shown 抽出（思考終了マーカー出現前のみ `_send_reasoning`）。返却値は strip_think / strip_turn_markers / build_user_content ヘルパー再利用
 - エラー契約: transformers/torch の例外は ValueError に集約（ユーザー可読メッセージ。パスを含まない）
 - RETURN_TYPES: ("STRING",) / RETURN_NAMES: ("text",) / FUNCTION: "generate" / CATEGORY: "LLM"
-- 登録: NODE_CLASS_MAPPINGS["DirectHFPrompt"] / 表示名 "hf-direct"
+- 登録: NODE_CLASS_MAPPINGS["HFLLMDirect"] / 表示名 "hf-llm-direct"
 - transformers/torch import はノードクラス定義前に try/except でガード（不在時は InputTypes で model を空 combo にし、generate で明確なエラーメッセージ）
 
 ## データ構造・インターフェース
-- ノード: `DirectOpenAIPrompt` / 表示名 "openai-direct" / CATEGORY "LLM" / RETURN STRING
-- ノード: `DirectHFPrompt` / 表示名 "hf-direct" / CATEGORY "LLM" / RETURN STRING（機能5）
+- ノード: `APILLMDirect` / 表示名 "api-llm-direct" / CATEGORY "LLM" / RETURN STRING
+- ノード: `HFLLMDirect` / 表示名 "hf-llm-direct" / CATEGORY "LLM" / RETURN STRING（機能5）
 - 入力: base_url, model, system_prompt, user_input, api_key, resolution, duration, inject_shape, strip_think, temperature, top_p, max_tokens, seed, timeout
 - 共通ヘルパー: `openai_client.py`（strip_think / strip_turn_markers / build_user_content / chat_completion）
 
 ## ファイル構成
 - 新規: `openai_client.py`、`tests/test_openai_client.py`
-- 変更: `__init__.py`（ヘルパー使用に切替 + DirectOpenAIPrompt 追加 + 登録）
+- 変更: `__init__.py`（ヘルパー使用に切替 + APILLMDirect 追加 + 登録）
 - 更新: `README.md`（使い方、env var 推奨、seed 拒否サーバー注記）
 - 新規（機能5）: `hf_client.py`（transformers 直読みの純粋ロジック。ComfyUI import なし・単体テスト可能）/ `tests/test_hf_client.py`
-- 変更（機能5）: `__init__.py`（DirectHFPrompt 追加 + 登録）
+- 変更（機能5）: `__init__.py`（HFLLMDirect 追加 + 登録）

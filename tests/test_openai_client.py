@@ -17,7 +17,7 @@ from openai_client import (
 )
 
 
-# Reference copy of the old inline logic from DirectGGUFPrompt.generate() —
+# Reference copy of the old inline logic from GGUFLLMDirect.generate() —
 # strip_think must produce byte-identical output.
 def _old_strip_think(text):
     if "</think>" in text:
@@ -122,7 +122,7 @@ def test_chat_completion_ok():
 
 def test_chat_completion_api_error():
     client = _ok_client(lambda req: httpx.Response(400, json={"error": {"message": "bad"}}))
-    with pytest.raises(ValueError, match="openai-direct: API error 400"):
+    with pytest.raises(ValueError, match="api-llm-direct: API error 400"):
         chat_completion(client, "http://x:8080/v1", "m", [])
 
 
@@ -131,7 +131,7 @@ def test_chat_completion_timeout():
         raise httpx.ConnectTimeout("connect timed out")
 
     client = _ok_client(handler)
-    with pytest.raises(ValueError, match="openai-direct: request failed"):
+    with pytest.raises(ValueError, match="api-llm-direct: request failed"):
         chat_completion(client, "http://x:8080/v1", "m", [])
 
 
@@ -290,7 +290,7 @@ def test_chat_completion_stream_role_only_no_chunk():
 
 def test_chat_completion_stream_api_error():
     client = _ok_client(lambda req: httpx.Response(400, json={"error": {"message": "bad"}}))
-    with pytest.raises(ValueError, match="openai-direct: API error 400"):
+    with pytest.raises(ValueError, match="api-llm-direct: API error 400"):
         chat_completion_stream(client, "http://x:8080/v1", "m", [])
 
 
@@ -401,12 +401,12 @@ def test_chat_completion_stream_request_failed():
         raise httpx.ConnectTimeout("connect timed out")
 
     client = _ok_client(handler)
-    with pytest.raises(ValueError, match="openai-direct: request failed: ConnectTimeout"):
+    with pytest.raises(ValueError, match="api-llm-direct: request failed: ConnectTimeout"):
         chat_completion_stream(client, "http://x:8080/v1", "m", [])
 
 
 def test_chat_completion_stream_unexpected_response():
     body = "data: {not json}\n\n".encode()
     client = _ok_client(lambda req: httpx.Response(200, content=body))
-    with pytest.raises(ValueError, match="openai-direct: unexpected response"):
+    with pytest.raises(ValueError, match="api-llm-direct: unexpected response"):
         chat_completion_stream(client, "http://x:8080/v1", "m", [])

@@ -2,7 +2,7 @@
 
 ## 1. プロジェクト概要
 - 本プロジェクトのプラン作成、および回答は全て日本語で行います。
-- ComfyUI カスタムノード `llm-direct`: llama_cpp / OpenAI 互換 API を直接叩くシンプルな LLM ノード集（gguf-direct, openai-direct）
+- ComfyUI カスタムノード `llm-direct`: llama_cpp / OpenAI 互換 API を直接叩くシンプルな LLM ノード集（gguf-llm-direct, api-llm-direct）
 
 # Memory & Handoff Instructions
 

@@ -1,7 +1,7 @@
 """Pure-logic helpers for OpenAI-compatible chat APIs.
 
 No ComfyUI imports: this module stays unit-testable in isolation. Shared by
-the openai-direct node and, for the stripping helpers, gguf-direct.
+the api-llm-direct node and, for the stripping helpers, gguf-llm-direct.
 """
 
 import json
@@ -98,18 +98,18 @@ def chat_completion(client, base_url, model, messages, api_key="", temperature=0
         resp = client.post(url, headers=_bearer_headers(api_key), json=payload)
     except httpx.HTTPError as exc:
         # Keep the message generic: never leak URL, headers or request body.
-        raise ValueError(f"openai-direct: request failed: {type(exc).__name__}") from exc
+        raise ValueError(f"api-llm-direct: request failed: {type(exc).__name__}") from exc
     if resp.status_code != 200:
-        raise ValueError(f"openai-direct: API error {resp.status_code}")
+        raise ValueError(f"api-llm-direct: API error {resp.status_code}")
     try:
         content = resp.json()["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError, ValueError):
-        raise ValueError("openai-direct: unexpected response") from None
+        raise ValueError("api-llm-direct: unexpected response") from None
     if content is None:
         # o-series models can spend all tokens on reasoning and return no
         # visible text; raise max_tokens or disable thinking in that case.
         raise ValueError(
-            "openai-direct: no content in response (model may have consumed "
+            "api-llm-direct: no content in response (model may have consumed "
             "all tokens on reasoning; raise max_tokens or disable thinking)"
         )
     return content
@@ -126,7 +126,7 @@ def chat_completion_stream(client, base_url, model, messages, api_key="", temper
     try:
         with client.stream("POST", url, headers=_bearer_headers(api_key), json=payload) as resp:
             if resp.status_code != 200:
-                raise ValueError(f"openai-direct: API error {resp.status_code}")
+                raise ValueError(f"api-llm-direct: API error {resp.status_code}")
             for line in resp.iter_lines():
                 if not line.startswith("data: "):
                     continue
@@ -136,7 +136,7 @@ def chat_completion_stream(client, base_url, model, messages, api_key="", temper
                 try:
                     delta = json.loads(data)["choices"][0].get("delta", {})
                 except (KeyError, IndexError, TypeError, ValueError):
-                    raise ValueError("openai-direct: unexpected response") from None
+                    raise ValueError("api-llm-direct: unexpected response") from None
                 # Chunks come in three shapes: role-only (content missing),
                 # reasoning_content only, and content. Take content only;
                 # check both fields independently since some APIs mix them.
@@ -151,5 +151,5 @@ def chat_completion_stream(client, base_url, model, messages, api_key="", temper
                     if on_reasoning is not None:
                         on_reasoning("".join(reasoning))
     except httpx.HTTPError as exc:
-        raise ValueError(f"openai-direct: request failed: {type(exc).__name__}") from exc
+        raise ValueError(f"api-llm-direct: request failed: {type(exc).__name__}") from exc
     return "".join(text)

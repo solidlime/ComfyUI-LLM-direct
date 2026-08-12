@@ -60,5 +60,5 @@ def run_generate(model, input_ids, streamer, max_new_tokens, temperature, top_p,
             on_text("".join(text))
     thread.join()
     if errors:
-        raise ValueError(f"hf-direct: generation failed: {type(errors[0]).__name__}") from errors[0]
+        raise ValueError(f"hf-llm-direct: generation failed: {type(errors[0]).__name__}") from errors[0]
     return "".join(text)

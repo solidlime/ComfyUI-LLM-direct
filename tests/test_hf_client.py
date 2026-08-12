@@ -141,7 +141,7 @@ def test_run_generate_positive_temperature_samples():
 
 def test_run_generate_thread_error_becomes_valueerror():
     streamer = FakeStreamer()
-    with pytest.raises(ValueError, match="hf-direct: generation failed: RuntimeError"):
+    with pytest.raises(ValueError, match="hf-llm-direct: generation failed: RuntimeError"):
         hf_client.run_generate(FakeModel(error=RuntimeError("oom")), "ids", streamer,
                                100, 0.6, 0.9, 0)
 
