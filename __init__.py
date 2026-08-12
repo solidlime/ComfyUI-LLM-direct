@@ -46,7 +46,7 @@ def _register_gguf_folder():
 _register_gguf_folder()
 
 
-def _send_progress(text):
+def _send_reasoning(text):
     try:
         from server import PromptServer  # ComfyUI 環境でのみ存在
         from comfy_execution.utils import get_executing_context
@@ -58,7 +58,10 @@ def _send_progress(text):
     # covers normal execution so the fallback is only a best-effort escape.
     if node_id is not None and PromptServer.instance is not None:
         try:
-            PromptServer.instance.send_progress_text(text, node_id)
+            PromptServer.instance.send_sync(
+                "llm_direct_reasoning",
+                {"node": node_id, "text": text},
+            )
         except Exception:
             # Progress display is best-effort: a broken socket must not kill
             # the whole generation.
@@ -169,9 +172,14 @@ class DirectGGUFPrompt:
             if not piece:
                 continue
             text += piece
-            # Show the same cleaned text that will be returned: thinking is
-            # mixed into content for local models, so strip before display.
-            _send_progress(openai_client.strip_turn_markers(openai_client.strip_think(text)))
+            # Send only the thinking part: local models mix reasoning into
+            # content, and the display is reasoning-only (B plan).
+            shown = text
+            for end in ("</think>", "<|channel|>final<|message|>", "<channel|>"):
+                if end in shown:
+                    shown = shown.split(end, 1)[0]
+                    break
+            _send_reasoning(shown)
         if strip_think:
             text = openai_client.strip_think(text)
         text = openai_client.strip_turn_markers(text)
@@ -224,8 +232,7 @@ class DirectOpenAIPrompt:
                 temperature, top_p, max_tokens, seed,
                 enable_thinking=enable_thinking,
                 reasoning_effort=reasoning_effort,
-                on_chunk=lambda t: _send_progress(
-                    openai_client.strip_turn_markers(openai_client.strip_think(t))))
+                on_reasoning=lambda t: _send_reasoning(t))
         if strip_think:
             text = openai_client.strip_think(text)
         text = openai_client.strip_turn_markers(text)
@@ -237,3 +244,6 @@ NODE_DISPLAY_NAME_MAPPINGS["DirectGGUFPrompt"] = "gguf-direct"
 
 NODE_CLASS_MAPPINGS["DirectOpenAIPrompt"] = DirectOpenAIPrompt
 NODE_DISPLAY_NAME_MAPPINGS["DirectOpenAIPrompt"] = "openai-direct"
+
+WEB_DIRECTORY = "./web"
+__all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]

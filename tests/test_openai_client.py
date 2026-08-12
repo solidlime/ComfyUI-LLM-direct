@@ -325,6 +325,77 @@ def test_chat_completion_stream_seed_sent():
     assert json.loads(seen["body"])["seed"] == 42
 
 
+def test_chat_completion_stream_reasoning_only():
+    events = [
+        {"choices": [{"delta": {"reasoning_content": "a"}, "index": 0}]},
+        {"choices": [{"delta": {"reasoning_content": "b"}, "index": 0}]},
+    ]
+    client = _ok_client(lambda req: _sse_response(*events))
+    chunks, thoughts = [], []
+    result = chat_completion_stream(
+        client, "http://x:8080/v1", "m", [], on_chunk=chunks.append, on_reasoning=thoughts.append
+    )
+    assert result == ""
+    assert chunks == []
+    assert thoughts == ["a", "ab"]
+
+
+def test_chat_completion_stream_reasoning_then_content():
+    events = [
+        {"choices": [{"delta": {"reasoning_content": "think"}, "index": 0}]},
+        {"choices": [{"delta": {"content": "answer"}, "index": 0}]},
+    ]
+    client = _ok_client(lambda req: _sse_response(*events))
+    chunks, thoughts = [], []
+    result = chat_completion_stream(
+        client, "http://x:8080/v1", "m", [], on_chunk=chunks.append, on_reasoning=thoughts.append
+    )
+    assert result == "answer"
+    assert chunks == ["answer"]
+    assert thoughts == ["think"]
+
+
+def test_chat_completion_stream_no_reasoning():
+    events = [
+        {"choices": [{"delta": {"content": "plain"}, "index": 0}]},
+    ]
+    client = _ok_client(lambda req: _sse_response(*events))
+    thoughts = []
+    result = chat_completion_stream(
+        client, "http://x:8080/v1", "m", [], on_reasoning=thoughts.append
+    )
+    assert result == "plain"
+    assert thoughts == []
+
+
+def test_chat_completion_stream_reasoning_and_content_mixed():
+    events = [
+        {"choices": [{"delta": {"reasoning_content": "think", "content": "ans"}, "index": 0}]},
+    ]
+    client = _ok_client(lambda req: _sse_response(*events))
+    chunks, thoughts = [], []
+    result = chat_completion_stream(
+        client, "http://x:8080/v1", "m", [], on_chunk=chunks.append, on_reasoning=thoughts.append
+    )
+    assert result == "ans"
+    assert chunks == ["ans"]
+    assert thoughts == ["think"]
+
+
+def test_chat_completion_stream_empty_reasoning_skipped():
+    events = [
+        {"choices": [{"delta": {"reasoning_content": ""}, "index": 0}]},
+        {"choices": [{"delta": {"content": "x"}, "index": 0}]},
+    ]
+    client = _ok_client(lambda req: _sse_response(*events))
+    thoughts = []
+    result = chat_completion_stream(
+        client, "http://x:8080/v1", "m", [], on_reasoning=thoughts.append
+    )
+    assert result == "x"
+    assert thoughts == []
+
+
 def test_chat_completion_stream_request_failed():
     def handler(request):
         raise httpx.ConnectTimeout("connect timed out")

@@ -100,11 +100,12 @@ def chat_completion(client, base_url, model, messages, api_key="", temperature=0
 
 def chat_completion_stream(client, base_url, model, messages, api_key="", temperature=0.6,
                            top_p=0.9, max_tokens=4096, seed=0, enable_thinking=True,
-                           reasoning_effort="auto", on_chunk=None):
+                           reasoning_effort="auto", on_reasoning=None, on_chunk=None):
     url = f"{base_url.rstrip('/')}/chat/completions"
     payload = _build_payload(model, messages, temperature, top_p, max_tokens, seed,
                              enable_thinking, reasoning_effort, stream=True)
     text = []
+    reasoning = []
     try:
         with client.stream("POST", url, headers=_bearer_headers(api_key), json=payload) as resp:
             if resp.status_code != 200:
@@ -120,12 +121,18 @@ def chat_completion_stream(client, base_url, model, messages, api_key="", temper
                 except (KeyError, IndexError, TypeError, ValueError):
                     raise ValueError("openai-direct: unexpected response") from None
                 # Chunks come in three shapes: role-only (content missing),
-                # reasoning_content only, and content. Take content only.
+                # reasoning_content only, and content. Take content only;
+                # check both fields independently since some APIs mix them.
                 piece = delta.get("content")
                 if piece:
                     text.append(piece)
                     if on_chunk is not None:
                         on_chunk("".join(text))
+                thought = delta.get("reasoning_content")
+                if thought:
+                    reasoning.append(thought)
+                    if on_reasoning is not None:
+                        on_reasoning("".join(reasoning))
     except httpx.HTTPError as exc:
         raise ValueError(f"openai-direct: request failed: {type(exc).__name__}") from exc
     return "".join(text)
