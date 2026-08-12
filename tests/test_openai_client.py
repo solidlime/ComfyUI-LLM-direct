@@ -11,6 +11,7 @@ import openai_client
 from openai_client import (
     build_user_content,
     chat_completion,
+    chat_completion_stream,
     strip_think,
     strip_turn_markers,
 )
@@ -233,3 +234,108 @@ def test_chat_completion_defaults_add_no_fields():
     body = json.loads(seen["body"])
     assert "thinking" not in body
     assert "reasoning_effort" not in body
+
+
+def _sse_response(*events):
+    body = "\n\n".join(f"data: {json.dumps(e)}" for e in events) + "\n\n"
+    return httpx.Response(200, content=body.encode())
+
+
+def _stream_capture():
+    seen = {}
+
+    def handler(request):
+        seen["body"] = request.read().decode()
+        return _sse_response({"choices": [{"delta": {"content": "x"}, "index": 0}]})
+
+    return handler, seen
+
+
+def test_chat_completion_stream_accumulates():
+    events = [
+        {"choices": [{"delta": {"role": "assistant"}, "index": 0}]},
+        {"choices": [{"delta": {"content": "Hello"}, "index": 0}]},
+        {"choices": [{"delta": {"content": " world"}, "index": 0}]},
+        {"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]},
+    ]
+    client = _ok_client(lambda req: _sse_response(*events))
+    chunks = []
+    result = chat_completion_stream(client, "http://x:8080/v1", "m", [], on_chunk=chunks.append)
+    assert result == "Hello world"
+    assert chunks == ["Hello", "Hello world"]
+
+
+def test_chat_completion_stream_skips_reasoning():
+    events = [
+        {"choices": [{"delta": {"reasoning_content": "hidden"}, "index": 0}]},
+        {"choices": [{"delta": {"content": "answer"}, "index": 0}]},
+    ]
+    client = _ok_client(lambda req: _sse_response(*events))
+    chunks = []
+    result = chat_completion_stream(client, "http://x:8080/v1", "m", [], on_chunk=chunks.append)
+    assert result == "answer"
+    assert chunks == ["answer"]
+
+
+def test_chat_completion_stream_role_only_no_chunk():
+    events = [
+        {"choices": [{"delta": {"role": "assistant"}, "index": 0}]},
+        {"choices": [{"delta": {"content": "x"}, "index": 0}]},
+    ]
+    client = _ok_client(lambda req: _sse_response(*events))
+    chunks = []
+    chat_completion_stream(client, "http://x:8080/v1", "m", [], on_chunk=chunks.append)
+    assert chunks == ["x"]
+
+
+def test_chat_completion_stream_api_error():
+    client = _ok_client(lambda req: httpx.Response(400, json={"error": {"message": "bad"}}))
+    with pytest.raises(ValueError, match="openai-direct: API error 400"):
+        chat_completion_stream(client, "http://x:8080/v1", "m", [])
+
+
+def test_chat_completion_stream_split_events():
+    events = [
+        {"choices": [{"delta": {"content": "Hello"}, "index": 0}]},
+        {"choices": [{"delta": {"content": " world"}, "index": 0}]},
+        {"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]},
+    ]
+    payload = ("\n\n".join(f"data: {json.dumps(e)}" for e in events) + "\n\n").encode()
+    half = len(payload) // 2
+    client = _ok_client(
+        lambda req: httpx.Response(200, content=iter([payload[:half], payload[half:]]))
+    )
+    chunks = []
+    result = chat_completion_stream(client, "http://x:8080/v1", "m", [], on_chunk=chunks.append)
+    assert result == "Hello world"
+    assert chunks == ["Hello", "Hello world"]
+
+
+def test_chat_completion_stream_thinking_disabled():
+    handler, seen = _stream_capture()
+    client = _ok_client(handler)
+    chat_completion_stream(client, "http://x:8080/v1", "m", [], enable_thinking=False)
+    assert json.loads(seen["body"])["thinking"] == {"type": "disabled"}
+
+
+def test_chat_completion_stream_seed_sent():
+    handler, seen = _stream_capture()
+    client = _ok_client(handler)
+    chat_completion_stream(client, "http://x:8080/v1", "m", [], seed=42)
+    assert json.loads(seen["body"])["seed"] == 42
+
+
+def test_chat_completion_stream_request_failed():
+    def handler(request):
+        raise httpx.ConnectTimeout("connect timed out")
+
+    client = _ok_client(handler)
+    with pytest.raises(ValueError, match="openai-direct: request failed: ConnectTimeout"):
+        chat_completion_stream(client, "http://x:8080/v1", "m", [])
+
+
+def test_chat_completion_stream_unexpected_response():
+    body = "data: {not json}\n\n".encode()
+    client = _ok_client(lambda req: httpx.Response(200, content=body))
+    with pytest.raises(ValueError, match="openai-direct: unexpected response"):
+        chat_completion_stream(client, "http://x:8080/v1", "m", [])

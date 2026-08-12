@@ -4,6 +4,7 @@ No ComfyUI imports: this module stays unit-testable in isolation. Shared by
 the openai-direct node and, for the stripping helpers, gguf-direct.
 """
 
+import json
 import os
 import re
 
@@ -42,22 +43,15 @@ def build_user_content(resolution, duration, user_input, inject_shape):
     return content
 
 
-def chat_completion(client, base_url, model, messages, api_key="", temperature=0.6,
-                    top_p=0.9, max_tokens=4096, seed=0, enable_thinking=True,
-                    reasoning_effort="auto"):
-    url = f"{base_url.rstrip('/')}/chat/completions"
-    if not api_key:
-        api_key = os.environ.get("OPENAI_API_KEY", "")
-    headers = {}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
+def _build_payload(model, messages, temperature, top_p, max_tokens, seed,
+                   enable_thinking, reasoning_effort, stream):
     payload = {
         "model": model,
         "messages": messages,
         "temperature": temperature,
         "top_p": top_p,
         "max_tokens": max_tokens,
-        "stream": False,
+        "stream": stream,
     }
     if seed > 0:
         payload["seed"] = seed
@@ -65,8 +59,26 @@ def chat_completion(client, base_url, model, messages, api_key="", temperature=0
         payload["thinking"] = {"type": "disabled"}
     elif reasoning_effort != "auto":
         payload["reasoning_effort"] = reasoning_effort
+    return payload
+
+
+def _bearer_headers(api_key):
+    if not api_key:
+        api_key = os.environ.get("OPENAI_API_KEY", "")
+    headers = {}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    return headers
+
+
+def chat_completion(client, base_url, model, messages, api_key="", temperature=0.6,
+                    top_p=0.9, max_tokens=4096, seed=0, enable_thinking=True,
+                    reasoning_effort="auto"):
+    url = f"{base_url.rstrip('/')}/chat/completions"
+    payload = _build_payload(model, messages, temperature, top_p, max_tokens, seed,
+                             enable_thinking, reasoning_effort, stream=False)
     try:
-        resp = client.post(url, headers=headers, json=payload)
+        resp = client.post(url, headers=_bearer_headers(api_key), json=payload)
     except httpx.HTTPError as exc:
         # Keep the message generic: never leak URL, headers or request body.
         raise ValueError(f"openai-direct: request failed: {type(exc).__name__}") from exc
@@ -84,3 +96,36 @@ def chat_completion(client, base_url, model, messages, api_key="", temperature=0
             "all tokens on reasoning; raise max_tokens or disable thinking)"
         )
     return content
+
+
+def chat_completion_stream(client, base_url, model, messages, api_key="", temperature=0.6,
+                           top_p=0.9, max_tokens=4096, seed=0, enable_thinking=True,
+                           reasoning_effort="auto", on_chunk=None):
+    url = f"{base_url.rstrip('/')}/chat/completions"
+    payload = _build_payload(model, messages, temperature, top_p, max_tokens, seed,
+                             enable_thinking, reasoning_effort, stream=True)
+    text = []
+    try:
+        with client.stream("POST", url, headers=_bearer_headers(api_key), json=payload) as resp:
+            if resp.status_code != 200:
+                raise ValueError(f"openai-direct: API error {resp.status_code}")
+            for line in resp.iter_lines():
+                if not line.startswith("data: "):
+                    continue
+                data = line[len("data: "):]
+                if data == "[DONE]":
+                    break
+                try:
+                    delta = json.loads(data)["choices"][0].get("delta", {})
+                except (KeyError, IndexError, TypeError, ValueError):
+                    raise ValueError("openai-direct: unexpected response") from None
+                # Chunks come in three shapes: role-only (content missing),
+                # reasoning_content only, and content. Take content only.
+                piece = delta.get("content")
+                if piece:
+                    text.append(piece)
+                    if on_chunk is not None:
+                        on_chunk("".join(text))
+    except httpx.HTTPError as exc:
+        raise ValueError(f"openai-direct: request failed: {type(exc).__name__}") from exc
+    return "".join(text)

@@ -46,6 +46,25 @@ def _register_gguf_folder():
 _register_gguf_folder()
 
 
+def _send_progress(text):
+    try:
+        from server import PromptServer  # ComfyUI 環境でのみ存在
+        from comfy_execution.utils import get_executing_context
+    except ImportError:
+        return  # pytest 環境
+    ctx = get_executing_context()
+    node_id = ctx.node_id if ctx is not None else getattr(PromptServer.instance, "last_node_id", None)
+    # ponytail: last_node_id fallback can race with parallel prompts, but ctx
+    # covers normal execution so the fallback is only a best-effort escape.
+    if node_id is not None and PromptServer.instance is not None:
+        try:
+            PromptServer.instance.send_progress_text(text, node_id)
+        except Exception:
+            # Progress display is best-effort: a broken socket must not kill
+            # the whole generation.
+            pass
+
+
 def _gguf_choices():
     return [p for p in folder_paths.get_filename_list("llm_gguf") if p.lower().endswith(".gguf")]
 
@@ -140,8 +159,19 @@ class DirectGGUFPrompt:
             stop=list(_START_STOPS),
             seed=seed if seed > 0 else None,
             enable_thinking=bool(enable_thinking),
+            stream=True,
         )
-        text = resp["choices"][0]["message"]["content"]
+        text = ""
+        for chunk in resp:
+            # Delta has no "content" on the role-only first chunk and the
+            # finish_reason last one, so .get() is required.
+            piece = chunk["choices"][0].get("delta", {}).get("content")
+            if not piece:
+                continue
+            text += piece
+            # Show the same cleaned text that will be returned: thinking is
+            # mixed into content for local models, so strip before display.
+            _send_progress(openai_client.strip_turn_markers(openai_client.strip_think(text)))
         if strip_think:
             text = openai_client.strip_think(text)
         text = openai_client.strip_turn_markers(text)
@@ -189,10 +219,13 @@ class DirectOpenAIPrompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": openai_client.build_user_content(resolution, duration, user_input, inject_shape)})
         with httpx.Client(timeout=httpx.Timeout(timeout, connect=10.0)) as client:
-            text = openai_client.chat_completion(client, base_url, model, messages, api_key,
-                                                 temperature, top_p, max_tokens, seed,
-                                                 enable_thinking=enable_thinking,
-                                                 reasoning_effort=reasoning_effort)
+            text = openai_client.chat_completion_stream(
+                client, base_url, model, messages, api_key,
+                temperature, top_p, max_tokens, seed,
+                enable_thinking=enable_thinking,
+                reasoning_effort=reasoning_effort,
+                on_chunk=lambda t: _send_progress(
+                    openai_client.strip_turn_markers(openai_client.strip_think(t))))
         if strip_think:
             text = openai_client.strip_think(text)
         text = openai_client.strip_turn_markers(text)
