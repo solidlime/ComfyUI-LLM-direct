@@ -21,7 +21,7 @@ OpenAI 互換の `/chat/completions` エンドポイントを直接叩くノー�
 - `timeout`: 応答停止対策の読み取りタイムアウト（秒、デフォルト 300）
 - `enable_thinking`: False で DeepSeek 系の思考をオフ（`thinking: {"type": "disabled"}` を送信）
 - `reasoning_effort`: auto（送信しない）/ low / medium / high / max から選択。思考の程度を制御
-- 生成中テキストのリアルタイム表示: 両ノードとも ComfyUI 標準の progress text 表示機能で生成途中のテキストを表示（JS 不要）（medium は opencode 系のみ。DeepSeek 公式は low/high/max のみ対応）
+- thinking のリアルタイム表示: 生成中の思考テキストをノード内ウィジェットに表示（自前ウィジェット、`web/` から配信。JS バンドルへのパッチ不要）（medium は opencode 系のみ。DeepSeek 公式は low/high/max のみ対応）
 
 ### 注意
 

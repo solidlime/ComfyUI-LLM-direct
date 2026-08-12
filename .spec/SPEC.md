@@ -16,11 +16,16 @@
   - `enable_thinking` BOOLEAN: False なら `thinking: {"type": "disabled"}` を送信（DeepSeek 系の思考オフ方式。opencode zen/go の workaround と同じ）
   - `reasoning_effort` combo（auto/low/medium/high/max）: auto 以外なら `reasoning_effort` を送信（程度の切り替え）
   - 未知フィールドを常時送らない（opencode zen/go は STRICT 検証で未知フィールドに 400 を返す。選択時のみ送信で回避）
-- [ ] 機能4：両ノードのストリーミングリアルタイム表示
-  - 生成中のテキストをノード上にリアルタイム表示（ユーザー要求: 「進行してるのが見たい」。出力ポートは現状維持）
-  - **JS ゼロの A 案**: `PromptServer.instance.send_progress_text(text, node_id)` で送信 → フロントエンドが `$$node-text-preview` ウィジェットを自動表示（server.py:1469-1479 の公式機構。node_id は 4byte 長 + bytes 前置きで BinaryEventTypes.TEXT 送信）
-  - send_progress_text は毎回置き換え（追記不可）→ **累積テキストを毎回送信**して追記風表示
-  - 完了時クリアはしない（次の実行で上書き）
+- [ ] 機能4：thinking のストリーミングリアルタイム表示（自前ウィジェット・B 案）
+  - ユーザー要求: **「thinking だけ見たい」**（2026-08-12 回答）。回答テキストのノード表示は不要（出力ポートは現状維持）
+  - **A 案（send_progress_text）は実機検証で不採用**: 受信自体は確認できたが（DevTools で progress_text イベント到達）、(1) 送信設計が content のみで thinking が除外される、(2) フロントエンド標準の handleProgressText が canvas ストア依存のノード ID 検索で弾く（ComfyUI バンドル内でパッチ不可）
+  - **B 案（自前ウィジェット）**: バックエンドが `send_sync("llm_direct_reasoning", {"node": node_id, "text": 累積thinking})` を送信 → フロントエンド JS（`WEB_DIRECTORY="./web"`）が `api.addEventListener` で受信 → addDOMWidget の div に表示（スクロール可、置き換え or 追記）
+  - openai 版: `delta.reasoning_content` を累積して送信（content は送らない。content のみのチャンクは無視）
+  - gguf 版: **思考終了マーカー（`</think>` / `<|channel|>final<|message|>` / `<channel|>`）出現前のテキストのみ**送信（llama_cpp は thinking が content に混在するため。strip_think は最終返却値のみに適用。on_reasoning のセマンティクスを openai 版と揃える）
+  - send_sync はスレッドセーフ（server.py:1392-1394、loop.call_soon_threadsafe）
+  - フロントエンド JS の制約（#081 修正必須）:
+    - **テキスト挿入は `textContent` 必須（`innerHTML` 禁止）** — モデル出力は信頼できない外部データ、XSS 境界
+    - **表示は置き換えに確定**: `el.textContent = 累積全文`（on_reasoning は累積テキストを渡す設計なので追記は二重表示）
 
 ## 非機能要件
 - パフォーマンス：非ストリーミング。タイムアウト必須
@@ -51,22 +56,24 @@
     - `content` が None（o 系モデルが reasoning のみ消費）→ ユーザー可読メッセージ
     - 応答形状不正（KeyError/IndexError/JSON 失敗）→ `openai-direct: unexpected response`
 - `_START_STOPS` は gguf 専用なのでヘルパーに入れない
-- `chat_completion_stream(client, base_url, model, messages, api_key, temperature, top_p, max_tokens, seed, enable_thinking=True, reasoning_effort="auto", on_chunk=None)`:
+- `chat_completion_stream(client, base_url, model, messages, api_key, temperature, top_p, max_tokens, seed, enable_thinking=True, reasoning_effort="auto", on_reasoning=None, on_chunk=None)`:
   - `stream=True` で POST、`with client.stream("POST", ...)` + `iter_lines()` で SSE パース
-  - 行パース: `data: {...}` → `choices[0].delta.content` / `delta.reasoning_content` を累積（thinking は表示に含めない）、`data: [DONE]` で終了。`data:` 以外の行（空行・コメント）は無視
-  - チャンクごとに `on_chunk(累積テキスト)` を呼ぶ（ComfyUI import なし維持のためコールバック注入）
-  - 返り値: 完了した完全テキスト（chat_completion と同じ戻り値契約）
+  - 行パース: `data: {...}` → `choices[0].delta.content` / `delta.reasoning_content` を別々に累積、`data: [DONE]` で終了。`data:` 以外の行（空行・コメント）は無視
+  - `on_reasoning`: reasoning_content の累積が空でないとき `on_reasoning(累積thinking)` を呼ぶ（thinking 表示用。ComfyUI import なし維持のためコールバック注入）
+  - `on_chunk`: content の累積が空でないとき `on_chunk(累積テキスト)` を呼ぶ（従来仕様。テスト互換で維持）
+  - 返り値: content の完全テキスト（chat_completion と同じ戻り値契約。thinking は含まない）
   - エラー契約は chat_completion と同一（ValueError 集約、URL/ヘッダー/ボディを含めない。SSE パース中の HTTPError・JSON 失敗も同様）
   - thinking 制御フィールド（enable_thinking / reasoning_effort）は chat_completion と同一ロジックを共有
   - ストリーム内で非 200 応答をチェック（非 stream 版のエラー契約と同一）
-  - 最初のチャンク（role のみ/空 content）と空累積テキストの on_chunk はスキップ
+  - 最初のチャンク（role のみ/空 content）と空累積のコールバック呼び出しはスキップ
 
 ### ノード側の node_id 取得（#081 修正必須反映）
 - `from comfy_execution.utils import get_executing_context` で `ctx = get_executing_context()` → `ctx.node_id` を優先（execution.py:305 の CurrentNodeContext が generate 実行中は自ノードを確実に指す。ContextVar なので同時実行競合なし）
-- フォールバック: `getattr(PromptServer.instance, "last_node_id", None)`（pytest 等 PromptServer 不在環境は None → send_progress_text 呼び出しスキップ）
+- フォールバック: `getattr(PromptServer.instance, "last_node_id", None)`（pytest 等 PromptServer 不在環境は None → 送信スキップ）
 - **last_node_id の直接使用は不可**（server.client_id が None の API 実行では古い値のまま）
-- send_progress_text は `PromptServer.instance.send_progress_text(累積テキスト, node_id)`。**prompt_id を前置しない**（supports_progress_text_metadata フラグが無いため node_id + text 形式でパースされる）
-- gguf 版: on_chunk 表示は **strip_think + strip_turn_markers 適用済みの累積テキスト**を送る（最終返却値と表示が一致する。llama_cpp は thinking が delta.content に混在するため）
+- 送信は `PromptServer.instance.send_sync("llm_direct_reasoning", {"node": node_id, "text": 累積thinking})`（B 案。sid デフォルト None = 全クライアントへブロードキャスト）
+- 表示失敗は生成を中断しない（try/except で隔離。表示はベストエフォート）
+- gguf 版: **思考終了マーカー（`</think>` / `<|channel|>final<|message|>` / `<channel|>`）出現前のみ抽出**して送る（llama_cpp は thinking が delta.content に混在するため。返却用 text は `shown` 変数と分離し、strip_think / strip_turn_markers は従来どおり最終返却値のみに適用）
 
 ### ノード `DirectOpenAIPrompt`
 - INPUT_TYPES required: base_url, model, system_prompt, user_input, api_key, resolution, duration, inject_shape, enable_thinking, reasoning_effort, strip_think, temperature, top_p, max_tokens, seed, timeout

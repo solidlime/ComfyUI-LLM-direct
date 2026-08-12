@@ -25,6 +25,14 @@
 - [x] T018：README 更新（リアルタイム表示の説明）
 - [x] T019：#081 事前アーキテクチャ判断（本格トリアージ: UI 表示機構 + 複数ファイル）
 
+## 優先度：中（表示方式の切替: A 案 → B 案、2026-08-12）
+- [x] T020：SPEC 更新（機能4 を B 案に書換: thinking のみ表示、自前ウィジェット。A 案は実機検証で不採用）
+- [x] T021：#081 事前アーキテクチャ判断（B 案: send_sync + addDOMWidget）
+- [x] T022：chat_completion_stream に on_reasoning 追加（reasoning_content 累積）+ テスト
+- [x] T023：web/llm-direct.js 新規（WEB_DIRECTORY 配信、addDOMWidget で thinking 表示）
+- [x] T024：両ノードの generate を on_reasoning 配線に切替（send_progress_text 除去、デバッグ print 除去）
+- [x] T025：README 更新（thinking リアルタイム表示の説明）
+
 ## 優先度：低
 - [ ] T008：実サーバーでの動作確認（ユーザー環境のローカルサーバー or 公式 API）← ユーザー実行
 - [ ] T013：opencode zen/go サーバー障害の再確認（2026-08-12 時点: chat/completions が全リクエストで 500。クライアント側の問題ではない）
