@@ -13,9 +13,9 @@
 
 ## 優先度：中
 - [x] T009：SPEC 更新（thinking 制御: enable_thinking + reasoning_effort）
-- [ ] T010：chat_completion に enable_thinking / reasoning_effort 追加 + payload テスト
-- [ ] T011：DirectOpenAIPrompt に入力 2 つ追加（generate 配線含む）
-- [ ] T012：README 更新（thinking 制御の説明と opencode zen/go 注記）
+- [x] T010：chat_completion に enable_thinking / reasoning_effort 追加 + payload テスト
+- [x] T011：DirectOpenAIPrompt に入力 2 つ追加（generate 配線含む）
+- [x] T012：README 更新（thinking 制御の説明と opencode zen/go 注記）
 
 ## 優先度：低
 - [ ] T008：実サーバーでの動作確認（ユーザー環境のローカルサーバー or 公式 API）← ユーザー実行
