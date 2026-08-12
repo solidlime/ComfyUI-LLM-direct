@@ -14,3 +14,6 @@
 - gguf-direct の strip ロジックは複数モデル形式（LFM2.5 / Qwen / GPT-OSS / Gemma4）に対応しており、等価性ゴールデンコーパステストで挙動不変を担保
 - **opencode zen/go は 2026-08-12 時点で chat/completions が全リクエスト 500**（全モデル・不正キーでも同じ。models は認証なしで 200 = 公開）。クライアント実装は正しい、サーバー障害
 - **thinking 制御の送信方式**（2026-08-12 実装）: オフ = `thinking: {"type": "disabled"}`（DeepSeek 系。reasoning_effort ではオフ不可）、程度 = トップレベル `reasoning_effort`（low/medium/high/max）。opencode zen/go は未知フィールドに 400 を返す STRICT 検証 → デフォルトでは追加フィールドを送らない設計
+- **ストリーミングリアルタイム表示**（2026-08-12 実装）: `PromptServer.instance.send_progress_text(text, node_id)` でフロントエンドが `$$node-text-preview` ウィジェットを自動表示（JS ゼロ、server.py:1469-1479）。node_id は `comfy_execution.utils.get_executing_context().node_id` を優先（last_node_id 直接使用は API 実行で古い値になるため不可、pytest 環境は ImportError → スキップ）
+- **llama_cpp 0.3.34 の chat handler は stream=True 対応**（`_chat_handlers["chat_template.default"]` に stream=True を渡すとジェネレータ）。チャンク形状: `chunk["choices"][0]["delta"]["content"]` は最初（role のみ）と最後（finish_reason）で不在 → `.get()` 必須。gguf は thinking が content に混在するので表示は strip 適用済みテキストを送る
+- **SSE パース**: `client.stream("POST", ...)` + `iter_lines()`。`data: ` プレフィックス行のみ処理、`data: [DONE]` で終了、delta は content / reasoning_content / 空 の 3 形状。エラー契約は非 stream 版と同一（ValueError、URL 非含有）。MockTransport で bytes を返せばテスト可能
