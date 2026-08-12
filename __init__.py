@@ -10,13 +10,21 @@ the ComfyUI models directory (models/LLM/GGUF), so the node works wherever
 the install lives.
 """
 
-import re
 import gc
+import os
+import sys
 from pathlib import Path
 
 import folder_paths
+import httpx
 
 from llama_cpp import Llama
+
+# ComfyUI loads this folder via spec_from_file_location without adding it to
+# sys.path, so expose our own dir for the sibling helper module.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import openai_client
 
 NODE_CLASS_MAPPINGS = {}
 NODE_DISPLAY_NAME_MAPPINGS = {}
@@ -116,15 +124,7 @@ class DirectGGUFPrompt:
         messages = []
         if system_prompt.strip():
             messages.append({"role": "system", "content": system_prompt})
-        # Same injection format as pytraveler's writer nodes: shape constraints
-        # live at the top of the user turn, the request follows as original_prompt.
-        if inject_shape:
-            content = f"resolution: {resolution}\nduration: {int(duration)}s"
-            if user_input.strip():
-                content += f"\noriginal_prompt: {user_input}"
-        else:
-            content = user_input
-        messages.append({"role": "user", "content": content})
+        messages.append({"role": "user", "content": openai_client.build_user_content(resolution, duration, user_input, inject_shape)})
         # Call the template handler directly so enable_thinking reaches the
         # model's Jinja template (create_chat_completion drops extra kwargs).
         handler = llm._chat_handlers.get("chat_template.default")
@@ -143,24 +143,59 @@ class DirectGGUFPrompt:
         )
         text = resp["choices"][0]["message"]["content"]
         if strip_think:
-            # LFM2.5 emits bare reasoning terminated by </think>; Qwen-style
-            # models wrap it in <think>...</think>; GPT-OSS uses
-            # <|channel|>analysis...<|channel|>final<|message|>; Gemma 4
-            # closes its thought block with <channel|> (reversed form). All
-            # collapse to: keep only the final answer part.
-            if "</think>" in text:
-                text = text.split("</think>", 1)[-1]
-            elif "<|channel|>final<|message|>" in text:
-                text = text.split("<|channel|>final<|message|>", 1)[-1]
-            elif "<channel|>" in text:
-                text = text.split("<channel|>", 1)[-1]
-        # Strip end/start-of-turn markers the model emitted; keep everything else.
-        text = re.sub(r"<\|?end_of_turn\|?>|<\|?end_turn\|?>|\|end_of_turn\||_?end_of_turn|_?end_turn", "", text, flags=re.IGNORECASE).strip()
+            text = openai_client.strip_think(text)
+        text = openai_client.strip_turn_markers(text)
         if unload_after_run:
             self._cache.clear()
             gc.collect()
         return (text,)
 
 
+class DirectOpenAIPrompt:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "base_url": ("STRING", {"default": "http://127.0.0.1:8080/v1"}),
+                "model": ("STRING", {"default": ""}),
+                "system_prompt": ("STRING", {"multiline": True, "default": ""}),
+                "user_input": ("STRING", {"multiline": True}),
+                "api_key": ("STRING", {"default": "", "password": True}),
+                "resolution": (_RESOLUTIONS, {"default": "9:16"}),
+                "duration": ("INT", {"default": 10, "min": 1, "max": 15}),
+                "inject_shape": ("BOOLEAN", {"default": True}),
+                "strip_think": ("BOOLEAN", {"default": True}),
+                "temperature": ("FLOAT", {"default": 0.6, "min": 0.0, "max": 2.0, "step": 0.01}),
+                "top_p": ("FLOAT", {"default": 0.9, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "max_tokens": ("INT", {"default": 4096, "min": 1, "max": 65536}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 2**32 - 1}),
+                "timeout": ("FLOAT", {"default": 300.0, "min": 5.0, "max": 3600.0}),
+            },
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("text",)
+    FUNCTION = "generate"
+    CATEGORY = "LLM"
+
+    def generate(self, base_url, model, system_prompt, user_input, api_key="", resolution="9:16",
+                 duration=10, inject_shape=True, strip_think=True, temperature=0.6, top_p=0.9,
+                 max_tokens=4096, seed=0, timeout=300.0):
+        messages = []
+        if system_prompt.strip():
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": openai_client.build_user_content(resolution, duration, user_input, inject_shape)})
+        with httpx.Client(timeout=httpx.Timeout(connect=10.0, read=timeout)) as client:
+            text = openai_client.chat_completion(client, base_url, model, messages, api_key,
+                                                 temperature, top_p, max_tokens, seed)
+        if strip_think:
+            text = openai_client.strip_think(text)
+        text = openai_client.strip_turn_markers(text)
+        return (text,)
+
+
 NODE_CLASS_MAPPINGS["DirectGGUFPrompt"] = DirectGGUFPrompt
 NODE_DISPLAY_NAME_MAPPINGS["DirectGGUFPrompt"] = "gguf-direct"
+
+NODE_CLASS_MAPPINGS["DirectOpenAIPrompt"] = DirectOpenAIPrompt
+NODE_DISPLAY_NAME_MAPPINGS["DirectOpenAIPrompt"] = "openai-direct"
