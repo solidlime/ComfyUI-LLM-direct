@@ -410,3 +410,25 @@ def test_chat_completion_stream_unexpected_response():
     client = _ok_client(lambda req: httpx.Response(200, content=body))
     with pytest.raises(ValueError, match="api-llm-direct: unexpected response"):
         chat_completion_stream(client, "http://x:8080/v1", "m", [])
+
+# --- build_messages multimodal ----------------------------------------------
+
+
+def test_build_messages_with_image_uris():
+    messages = openai_client.build_messages(
+        "システム", "リクエスト", "9:16", 10, True,
+        image_uris=["data:image/png;base64,AAA"],
+    )
+    assert messages == [
+        {"role": "system", "content": "システム"},
+        {"role": "user", "content": [
+            {"type": "text", "text": "resolution: 9:16\nduration: 10s\noriginal_prompt: リクエスト"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAA"}},
+        ]},
+    ]
+
+
+def test_build_messages_empty_uris_keeps_string():
+    # 後方互換: 空リストなら従来どおり str
+    messages = openai_client.build_messages("", "hi", "9:16", 10, False, image_uris=[])
+    assert messages == [{"role": "user", "content": "hi"}]

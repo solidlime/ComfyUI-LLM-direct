@@ -10,6 +10,8 @@ import re
 
 import httpx
 
+import media
+
 
 def strip_think(text):
     # LFM2.5 emits bare reasoning terminated by </think>; Qwen-style
@@ -43,11 +45,12 @@ def build_user_content(resolution, duration, user_input, inject_shape):
     return content
 
 
-def build_messages(system_prompt, user_input, resolution, duration, inject_shape):
+def build_messages(system_prompt, user_input, resolution, duration, inject_shape, image_uris=None):
     messages = []
     if system_prompt.strip():
         messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": build_user_content(resolution, duration, user_input, inject_shape)})
+    text = build_user_content(resolution, duration, user_input, inject_shape)
+    messages.append({"role": "user", "content": media.build_multimodal_content(text, image_uris)})
     return messages
 
 
