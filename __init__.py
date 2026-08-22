@@ -27,6 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import openai_client
 import hf_client
+import media
 
 NODE_CLASS_MAPPINGS = {}
 NODE_DISPLAY_NAME_MAPPINGS = {}
@@ -245,6 +246,11 @@ class APILLMDirect:
                 "seed": ("INT", {"default": 0, "min": 0, "max": 2**32 - 1}),
                 "timeout": ("FLOAT", {"default": 300.0, "min": 5.0, "max": 3600.0}),
             },
+            "optional": {
+                "image": ("IMAGE",),
+                "video": ("VIDEO",),
+                "video_frames": ("INT", {"default": 4, "min": 1, "max": 32}),
+            },
         }
 
     RETURN_TYPES = ("STRING",)
@@ -255,8 +261,9 @@ class APILLMDirect:
     def generate(self, base_url, model, system_prompt, user_input, api_key="", resolution="9:16",
                  duration=10, inject_shape=True, enable_thinking=True, reasoning_effort="auto",
                  strip_think=True, temperature=0.6, top_p=0.9, max_tokens=4096, seed=0,
-                 timeout=300.0):
-        messages = openai_client.build_messages(system_prompt, user_input, resolution, duration, inject_shape)
+                 timeout=300.0, image=None, video=None, video_frames=4):
+        uris = media.collect_data_uris(image=image, video=video, video_frames=video_frames)
+        messages = openai_client.build_messages(system_prompt, user_input, resolution, duration, inject_shape, image_uris=uris)
         with httpx.Client(timeout=httpx.Timeout(timeout, connect=10.0)) as client:
             text = openai_client.chat_completion_stream(
                 client, base_url, model, messages, api_key,
