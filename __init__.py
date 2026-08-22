@@ -42,11 +42,13 @@ _RESOLUTIONS = ("21:9", "16:9", "4:3", "1:1", "3:4", "9:16")
 try:
     from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
     from transformers import AutoModelForImageTextToText
+    from transformers import AutoProcessor
 except ImportError:
     AutoModelForCausalLM = None
     AutoTokenizer = None
     TextIteratorStreamer = None
     AutoModelForImageTextToText = None
+    AutoProcessor = None
 
 
 def _register_gguf_folder():
@@ -377,18 +379,24 @@ class HFLLMDirect:
                     arch = "".join(json.load(config_path.open(encoding="utf-8")).get("architectures", []))
                 except (OSError, ValueError):
                     pass
-            loader = AutoModelForImageTextToText if (
-                "ForConditionalGeneration" in arch and AutoModelForImageTextToText is not None
-            ) else AutoModelForCausalLM
+            is_vlm = "ForConditionalGeneration" in arch and AutoModelForImageTextToText is not None
+            loader = AutoModelForImageTextToText if is_vlm else AutoModelForCausalLM
             model = loader.from_pretrained(path, device_map="auto", torch_dtype=dtype)
-            tokenizer = AutoTokenizer.from_pretrained(path)
+            if is_vlm:
+                # VLM chat templates resolve images into pixel_values, which
+                # needs the processor; the bare tokenizer cannot do that.
+                io_handler = AutoProcessor.from_pretrained(path)
+                stream_tokenizer = io_handler.tokenizer
+            else:
+                io_handler = AutoTokenizer.from_pretrained(path)
+                stream_tokenizer = io_handler
         except Exception as exc:
             cls._cache.clear()
             gc.collect()
             raise ValueError(
                 "hf-llm-direct: model load failed (VRAM/メモリ不足、より小さいモデルを選択してください)"
             ) from exc
-        cls._cache[model_name] = (model, tokenizer)
+        cls._cache[model_name] = (model, io_handler, stream_tokenizer)
         return cls._cache[model_name]
 
     def generate(self, model, system_prompt, user_input, resolution="9:16", duration=10,
@@ -398,11 +406,11 @@ class HFLLMDirect:
         if AutoModelForCausalLM is None:
             # An empty combo never reaches this path, so guard here too.
             raise ValueError("hf-llm-direct: transformers がインストールされていません")
-        model_obj, tokenizer = self._get_model(model)
+        model_obj, io_handler, stream_tokenizer = self._get_model(model)
         uris = media.collect_data_uris(image=image, video=video, video_frames=video_frames)
         messages = openai_client.build_messages(system_prompt, user_input, resolution, duration, inject_shape, image_uris=uris)
-        inputs = hf_client.build_inputs(tokenizer, messages)
-        streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
+        inputs = hf_client.build_inputs(io_handler, messages)
+        streamer = TextIteratorStreamer(stream_tokenizer, skip_prompt=True, skip_special_tokens=True)
         text = hf_client.run_generate(
             model_obj, inputs, streamer, max_new_tokens, temperature, top_p, seed,
             on_text=lambda t: _send_reasoning(openai_client.split_before_think_end(t)),

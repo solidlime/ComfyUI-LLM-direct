@@ -6,6 +6,7 @@ lazy `import torch` picks it up; real torch is never required.
 
 import queue
 import sys
+from collections import UserDict
 
 import pytest
 
@@ -61,6 +62,12 @@ class FakeTensor:
     device = "cpu"
 
 
+class FakeBatch(UserDict):
+    # transformers >=4.49 returns BatchFeature/BatchEncoding (UserDict
+    # subclasses, NOT dict) from apply_chat_template(return_dict=True).
+    pass
+
+
 class FakeTokenizer:
     def __init__(self, return_dict=False):
         self.calls = []
@@ -69,7 +76,7 @@ class FakeTokenizer:
     def apply_chat_template(self, messages, **kwargs):
         self.calls.append((messages, kwargs))
         if self.return_dict:
-            return {"input_ids": "ids", "attention_mask": "mask"}
+            return FakeBatch({"input_ids": "ids", "attention_mask": "mask"})
         return "tokenized-inputs"
 
 
@@ -119,6 +126,17 @@ def test_run_generate_dict_inputs_expanded():
                            streamer, 100, 0.6, 0.9, 0)
     assert model.kwargs["input_ids"] == "ids"
     assert model.kwargs["attention_mask"] == "mask"
+
+
+def test_run_generate_batch_feature_inputs_expanded():
+    # VLM path: build_inputs returns a UserDict-like BatchFeature with
+    # pixel_values; it must expand even though it is not a dict subclass.
+    model = FakeModel()
+    streamer = FakeStreamer()
+    inputs = FakeBatch({"input_ids": "ids", "pixel_values": "px"})
+    hf_client.run_generate(model, inputs, streamer, 100, 0.6, 0.9, 0)
+    assert model.kwargs["input_ids"] == "ids"
+    assert model.kwargs["pixel_values"] == "px"
 
 
 def test_run_generate_accumulates_text_and_calls_on_text():

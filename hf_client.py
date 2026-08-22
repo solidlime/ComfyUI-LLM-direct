@@ -22,7 +22,7 @@ def build_inputs(processor, messages):
         return processor.apply_chat_template(
             messages, tokenize=True, return_dict=True, add_generation_prompt=True
         )
-    except (TypeError, ValueError):
+    except TypeError:
         # transformers too old for return_dict support
         return processor.apply_chat_template(
             messages, tokenize=True, return_tensors="pt", add_generation_prompt=True
@@ -33,8 +33,9 @@ def run_generate(model, inputs, streamer, max_new_tokens, temperature, top_p,
                  seed, on_text=None):
     """Run model.generate on a worker thread, feeding the streamer.
 
-    inputs is a tensor or a dict-like BatchFeature from build_inputs; dict
-    inputs are expanded into generate kwargs (input_ids + pixel_values etc.).
+    inputs is a tensor or a dict-like object (dict / BatchFeature) from
+    build_inputs; dict-like inputs are expanded into generate kwargs
+    (input_ids + pixel_values etc.).
     Exceptions raised on the worker thread are collected and re-raised as a
     ValueError on the caller thread after the stream is drained, so a
     mid-generation OOM does not die silently in a background thread.
@@ -51,7 +52,9 @@ def run_generate(model, inputs, streamer, max_new_tokens, temperature, top_p,
                 # non-positive temperature in TemperatureLogitsWarper.
                 do_sample=temperature > 0,
             )
-            if isinstance(inputs, dict):
+            # BatchFeature/BatchEncoding are UserDict subclasses, not dict:
+            # detect by keys() so tensors fall through to input_ids.
+            if hasattr(inputs, "keys"):
                 kwargs.update(inputs)
             else:
                 kwargs["input_ids"] = inputs
