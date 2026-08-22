@@ -7,18 +7,21 @@ import { app } from "../../scripts/app.js";
 // inside setup(), which runs after the frontend is fully initialized.
 
 function onReasoning(e) {
-  // Never key widgets by node id: onNodeCreated runs while the node id is
-  // still the LiteGraph placeholder (-1); the real id is assigned later on
-  // graph.add, so an id-keyed Map is always stale. Resolve the node from the
-  // graph at event time instead.
-  const node = window.app?.graph?.getNodeById(String(e.detail.node));
-  if (!node) return;
-  const widget = node.widgets?.find((w) => w.name === "reasoning");
-  if (!widget?.element) return;
-  const el = widget.element;
-  const stickToBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 30;
-  el.textContent = e.detail.text;  // 置き換え（追記だと二重表示）。innerHTML は XSS 境界なので禁止
-  if (stickToBottom) el.scrollTop = el.scrollHeight;  // 最下部表示中のみ追従（過去ログを読んでいる最中は邪魔しない）
+  // The WS event carries the emitting LLM node id; update every
+  // LLMThinkingPreview node whose input link originates from it.
+  const graph = window.app?.graph;
+  if (!graph) return;
+  for (const node of graph._nodes) {
+    if (node.type !== "LLMThinkingPreview") continue;
+    const link = node.getInputLink(0);
+    if (!link || String(link.origin_id) !== String(e.detail.node)) continue;
+    const widget = node.widgets?.find((w) => w.name === "reasoning");
+    if (!widget?.element) continue;
+    const el = widget.element;
+    const stickToBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 30;
+    el.textContent = e.detail.text;  // 置き換え（追記だと二重表示）。innerHTML は XSS 境界なので禁止
+    if (stickToBottom) el.scrollTop = el.scrollHeight;  // 最下部表示中のみ追従（過去ログを読んでいる最中は邪魔しない）
+  }
 }
 
 app.registerExtension({
@@ -32,7 +35,7 @@ app.registerExtension({
     api.addEventListener("llm_direct_reasoning", onReasoning);
   },
   async beforeRegisterNodeDef(nodeType, nodeData) {
-    if (nodeData.name !== "GGUFLLMDirect" && nodeData.name !== "APILLMDirect" && nodeData.name !== "HFLLMDirect") {
+    if (nodeData.name !== "LLMThinkingPreview") {
       return;
     }
     const onNodeCreated = nodeType.prototype.onNodeCreated;
