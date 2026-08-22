@@ -91,5 +91,6 @@ def collect_data_uris(image=None, video=None, video_frames=4):
     if image is not None:
         uris.extend(image_tensor_to_data_uris(image))
     if video is not None:
-        uris.extend(extract_video_frames_to_data_uris(video.get_stream_source(), video_frames))
+        source = video.get_stream_source() if hasattr(video, "get_stream_source") else video
+        uris.extend(extract_video_frames_to_data_uris(source, video_frames))
     return uris
