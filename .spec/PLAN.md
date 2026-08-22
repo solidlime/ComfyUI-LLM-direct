@@ -1,13 +1,5 @@
-# PLAN - やりたいこと
+# PLAN（人間の口頭メモ）
 
-<!-- ここに思ったことを自由に書いてください。箇条書きでも口語でもOK -->
-<!-- Claude がこの内容を読んでヒアリングし、SPEC.md を作成します -->
-
-- プロジェクト名は llm-direct（フォルダは既に custom_nodes/llm-direct）
-- 既存の gguf-llm-direct ノード（GGUFLLMDirect）は名前を変えずに残す（※2026-08-12 リネーム決定で撤回: 3 ノードとも -llm-direct 形式に改名、旧名エイリアスなし）
-- api-llm-direct ノードを追加したい
-  - 参考: 既存の gguf-llm-direct ノードの構造
-  - 接続先: OpenAI 互換 API（ローカルサーバーと公式 API の両対応、base_url で切り替え）
-  - 既存の OpenAI 系ノードは応答が止まったりするので、シンプルに自作
-  - openai パッケージは使わず httpx 直叩き（環境に openai は未導入、httpx は導入済み）
-- gguf-llm-direct と同じパラメータ体系（inject_shape, strip_think, temperature, top_p, max_tokens, seed など）
+## 2026-08-22 マルチモーダル対応
+- マルチモーダル対応したい
+- 画像、動画、音声入力などなど・・・
