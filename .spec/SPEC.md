@@ -60,3 +60,41 @@ ComfyUI 非依存の純粋関数のみ。
 - mmproj GGUF を `clip_model_path` に渡し、画像は data URI base64 で OK。n_ctx 増加必須
 - OpenAI 形式: `image_url`（公式）/ `input_audio`（公式 wav/mp3 のみ・今回は対象外）/ `video_url`（vLLM 拡張・不使用）
 - 動画は全プロバイダ実質フレームサンプリングが共通解
+
+---
+
+# SPEC 追記: フォローアップ（2026-08-22 第2弾）
+
+## 背景
+マルチモーダル実装後のユーザーフィードバック。video_frames エラーはブラウザリロード＋ノード再配置で解消済み（stale 状態のみ・コードバグなし）。
+
+## 要件
+
+### F1: thinking プレビューノード（新規・リアルタイム維持）
+- 新ノード `LLMThinkingPreview`（表示名: llm-thinking-preview）
+- 入力: `text`（STRING, forceInput）— LLM ノードの text 出力から接続。**このリンクが「どの LLM ノードの思考を表示するか」の識別子になる**
+- 出力: `text`（STRING）パススルー（下流連結可能）
+- 表示: 既存の WebSocket イベント `llm_direct_reasoning` を購読。イベント発火時にグラフ内のプレビューノードを走査し、入力リンクの origin_id がイベントの node id と一致するノードのみ更新
+- リアルタイム表示は ComfyUI 実行モデル上エッジ経由では不可能なため、WS 購読方式（フロントエンド完結・Python 実行不要）を採用
+- 複数 LLM ノード時は接続先ごとに分離表示。未接続のプレビューノードは空表示
+
+### F2: inline reasoning 表示の廃止
+- `web/llm-direct.js` の beforeRegisterNodeDef による3ノードへの DOM ウィジェット追加を削除
+- `_send_reasoning`（WS 送信側）は維持——プレビューノードのデータ源であり続ける
+- `serialize: false` のため旧ワークフローに残骸は出ない
+
+### F3: パラメータ並び替え（3ノード INPUT_TYPES）
+グルーピング順（required の宣言順 = UI 表示順）:
+1. 基本: model / system_prompt / user_input
+2. プロンプト形状: resolution / duration / inject_shape
+3. 思考・出力: enable_thinking / strip_think（api は reasoning_effort もここ）
+4. サンプリング: temperature / top_p / top_k / min_p / repeat_penalty / max_tokens(max_new_tokens) / seed
+5. llama 起動（gguf 上級）: n_ctx / n_gpu_layers / n_threads / n_batch / flash_attn / use_mmap
+6. 運用: unload_after_run(gguf) / timeout(api)
+- optional は現状維持: image / video / video_frames / mmproj_path
+- generate() シグネも同順に整合（kwargs 名渡しなので機能影響なし・可読性）
+- 新フロントエンドは名前ベース直列化のため既存ワークフローの値は保護される
+
+## 検証方針
+- pytest 全件回帰（97 tests 維持）+ py_compile
+- UI 変更のため実ブラウザ確認必須（ユーザー環境）: プレビューノード接続→生成→リアルタイム表示、inline 表示消失、パラメータ順確認

@@ -734,3 +734,87 @@ git commit -m "docs: マルチモーダル対応の README 同期"
 
 ## Drive-by Findings（実装中に発見したら報告）
 - （なし）
+
+---
+---
+
+# 第2弾: フォローアップ（thinking プレビューノード + パラメータ並び替え）
+
+> SPEC 追記分（F1〜F3）の実装計画。実装は #011（fix-1 セッション再利用）。
+
+### Task 7: パラメータ並び替え + thinking プレビューノード追加
+
+**Files:**
+- Modify: `__init__.py`（3ノード INPUT_TYPES 並び替え、generate シグネ整合、LLMThinkingPreview 追加）
+
+**Interfaces:**
+- Produces: `NODE_CLASS_MAPPINGS["LLMThinkingPreview"]`、INPUT `text`(STRING, forceInput)、RETURN `("STRING",)` 名 `text`
+
+- [ ] **Step 1: 3ノードの required を SPEC F3 順に並び替え** — 基本→プロンプト形状→思考・出力→サンプリング→llama起動(gguf)→運用。optional 変更なし
+- [ ] **Step 2: generate() シグネを同順に整合**（kwargs 名渡しのため機能影響なし）
+- [ ] **Step 3: LLMThinkingPreview ノード追加**
+
+```python
+class LLMThinkingPreview:
+    """Realtime thinking display node. The WS stream is rendered by the JS
+    extension (web/llm-direct.js); the Python side is a pure passthrough.
+    The input link identifies which LLM node's stream to show."""
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"text": ("STRING", {"forceInput": True})}}
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("text",)
+    FUNCTION = "passthrough"
+    CATEGORY = "LLM"
+
+    def passthrough(self, text):
+        return (text,)
+```
+
+- [ ] **Step 4: 登録** — `NODE_CLASS_MAPPINGS["LLMThinkingPreview"] = LLMThinkingPreview`、表示名 `"llm-thinking-preview"`
+- [ ] **Step 5: 検証** — `python -m py_compile __init__.py` + `cd tests; python -m pytest -v` 全緑
+- [ ] **Step 6: コミット** — `git commit -m "feat: llm-thinking-preview ノード追加 + パラメータ並び替え"`
+
+### Task 8: JS 拡張 — inline 廃止 + プレビューノード WS 購読
+
+**Files:**
+- Modify: `web/llm-direct.js`
+
+**Interfaces:**
+- Consumes: WS イベント `llm_direct_reasoning` `{node, text}`（変更なし）、ノード名 `LLMThinkingPreview`（Task 7）
+
+- [ ] **Step 1: beforeRegisterNodeDef の inline DOM ウィジェット追加を削除**（3ノード分）
+- [ ] **Step 2: onReasoning をプレビューノード対応に書き換え** — イベント発火時にグラフ走査し、入力リンク origin_id が e.detail.node と一致する LLMThinkingPreview ノードのみ更新:
+
+```javascript
+function onReasoning(e) {
+  const graph = window.app?.graph;
+  if (!graph) return;
+  for (const node of graph._nodes) {
+    if (node.type !== "LLMThinkingPreview") continue;
+    const link = node.getInputLink(0);
+    if (!link || String(link.origin_id) !== String(e.detail.node)) continue;
+    const widget = node.widgets?.find((w) => w.name === "reasoning");
+    if (!widget?.element) continue;
+    const el = widget.element;
+    const stickToBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 30;
+    el.textContent = e.detail.text;  // innerHTML は XSS 境界なので禁止
+    if (stickToBottom) el.scrollTop = el.scrollHeight;
+  }
+}
+```
+
+- [ ] **Step 3: プレビューノード側のウィジェット生成** — beforeRegisterNodeDef を LLMThinkingPreview 用に再利用（既存の addDOMWidget ロジック流用・serialize:false 維持）
+- [ ] **Step 4: コミット** — `git commit -m "feat: thinking 表示をプレビューノードへ移行（inline 廃止）"`
+
+### Task 9: README 同期 + 最終検証
+
+**Files:**
+- Modify: `README.md`
+
+- [ ] **Step 1: README 更新** — llm-thinking-preview ノードの説明追加（接続方法・リアルタイム表示・inline 表示廃止を明記）
+- [ ] **Step 2: 全テスト + py_compile**
+- [ ] **Step 3: REVIEW (#081)** → GATE → コミット + push
+- [ ] **Step 4: 実機確認（ユーザー環境）** — ComfyUI 再起動後: ①プレビューノード接続でリアルタイム表示 ②inline 表示が消えたこと ③パラメータ順 ④旧ワークフローが壊れないこと
