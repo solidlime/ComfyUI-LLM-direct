@@ -750,9 +750,9 @@ git commit -m "docs: マルチモーダル対応の README 同期"
 **Interfaces:**
 - Produces: `NODE_CLASS_MAPPINGS["LLMThinkingPreview"]`、INPUT `text`(STRING, forceInput)、RETURN `("STRING",)` 名 `text`
 
-- [ ] **Step 1: 3ノードの required を SPEC F3 順に並び替え** — 基本→プロンプト形状→思考・出力→サンプリング→llama起動(gguf)→運用。optional 変更なし
-- [ ] **Step 2: generate() シグネを同順に整合**（kwargs 名渡しのため機能影響なし）
-- [ ] **Step 3: LLMThinkingPreview ノード追加**
+- [x] **Step 1: 3ノードの required を SPEC F3 順に並び替え** — 基本→プロンプト形状→思考・出力→サンプリング→llama起動(gguf)→運用。optional 変更なし
+- [x] **Step 2: generate() シグネを同順に整合**（kwargs 名渡しのため機能影響なし）
+- [x] **Step 3: LLMThinkingPreview ノード追加**
 
 ```python
 class LLMThinkingPreview:
@@ -773,9 +773,9 @@ class LLMThinkingPreview:
         return (text,)
 ```
 
-- [ ] **Step 4: 登録** — `NODE_CLASS_MAPPINGS["LLMThinkingPreview"] = LLMThinkingPreview`、表示名 `"llm-thinking-preview"`
-- [ ] **Step 5: 検証** — `python -m py_compile __init__.py` + `cd tests; python -m pytest -v` 全緑
-- [ ] **Step 6: コミット** — `git commit -m "feat: llm-thinking-preview ノード追加 + パラメータ並び替え"`
+- [x] **Step 4: 登録** — `NODE_CLASS_MAPPINGS["LLMThinkingPreview"] = LLMThinkingPreview`、表示名 `"llm-thinking-preview"`
+- [x] **Step 5: 検証** — `python -m py_compile __init__.py` + `cd tests; python -m pytest -v` 全緑
+- [x] **Step 6: コミット** — `git commit -m "feat: llm-thinking-preview ノード追加 + パラメータ並び替え"`
 
 ### Task 8: JS 拡張 — inline 廃止 + プレビューノード WS 購読
 
@@ -785,8 +785,8 @@ class LLMThinkingPreview:
 **Interfaces:**
 - Consumes: WS イベント `llm_direct_reasoning` `{node, text}`（変更なし）、ノード名 `LLMThinkingPreview`（Task 7）
 
-- [ ] **Step 1: beforeRegisterNodeDef の inline DOM ウィジェット追加を削除**（3ノード分）
-- [ ] **Step 2: onReasoning をプレビューノード対応に書き換え** — イベント発火時にグラフ走査し、入力リンク origin_id が e.detail.node と一致する LLMThinkingPreview ノードのみ更新:
+- [x] **Step 1: beforeRegisterNodeDef の inline DOM ウィジェット追加を削除**（3ノード分）
+- [x] **Step 2: onReasoning をプレビューノード対応に書き換え** — イベント発火時にグラフ走査し、入力リンク origin_id が e.detail.node と一致する LLMThinkingPreview ノードのみ更新:
 
 ```javascript
 function onReasoning(e) {
@@ -806,15 +806,15 @@ function onReasoning(e) {
 }
 ```
 
-- [ ] **Step 3: プレビューノード側のウィジェット生成** — beforeRegisterNodeDef を LLMThinkingPreview 用に再利用（既存の addDOMWidget ロジック流用・serialize:false 維持）
-- [ ] **Step 4: コミット** — `git commit -m "feat: thinking 表示をプレビューノードへ移行（inline 廃止）"`
+- [x] **Step 3: プレビューノード側のウィジェット生成** — beforeRegisterNodeDef を LLMThinkingPreview 用に再利用（既存の addDOMWidget ロジック流用・serialize:false 維持）
+- [x] **Step 4: コミット** — `git commit -m "feat: thinking 表示をプレビューノードへ移行（inline 廃止）"`
 
 ### Task 9: README 同期 + 最終検証
 
 **Files:**
 - Modify: `README.md`
 
-- [ ] **Step 1: README 更新** — llm-thinking-preview ノードの説明追加（接続方法・リアルタイム表示・inline 表示廃止を明記）
-- [ ] **Step 2: 全テスト + py_compile**
+- [x] **Step 1: README 更新** — llm-thinking-preview ノードの説明追加（接続方法・リアルタイム表示・inline 表示廃止を明記）
+- [x] **Step 2: 全テスト + py_compile**
 - [ ] **Step 3: REVIEW (#081)** → GATE → コミット + push
 - [ ] **Step 4: 実機確認（ユーザー環境）** — ComfyUI 再起動後: ①プレビューノード接続でリアルタイム表示 ②inline 表示が消えたこと ③パラメータ順 ④旧ワークフローが壊れないこと

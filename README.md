@@ -7,6 +7,7 @@ LLM 呼び出しをシンプルに直接行う ComfyUI カスタムノード集�
 - **gguf-llm-direct**: llama_cpp 直叩きのローカル GGUF 推論ノード
 - **api-llm-direct**: OpenAI 互換 API を httpx 直叩きするノード
 - **hf-llm-direct**: transformers 直読みのローカル HF モデルノード（CausalLM / VLM）
+- **llm-thinking-preview**: LLM ノードの思考ストリームをリアルタイム表示するパススルーノード
 
 プリセットなし・クリーンアップパイプラインなし。モデルの応答をそのまま返す。
 
@@ -38,7 +39,7 @@ OpenAI 互換の `/chat/completions` エンドポイントを直接叩くノー�
 - `timeout`: 応答停止対策の読み取りタイムアウト（秒、デフォルト 300）
 - `enable_thinking`: False で DeepSeek 系の思考をオフ（`thinking: {"type": "disabled"}` を送信）
 - `reasoning_effort`: auto（送信しない）/ low / medium / high / max から選択。思考の程度を制御
-- thinking のリアルタイム表示: 生成中の思考テキストをノード内ウィジェットに表示（自前ウィジェット、`web/` から配信。JS バンドルへのパッチ不要）（medium は opencode 系のみ。DeepSeek 公式は low/high/max のみ対応）
+- thinking のリアルタイム表示: `llm-thinking-preview` ノードへ接続（下記参照）（medium は opencode 系のみ。DeepSeek 公式は low/high/max のみ対応）
 
 ### 注意
 
@@ -57,13 +58,28 @@ Hugging Face transformers でローカルモデルを直接実行するノード
 - `system_prompt` / `user_input` / `resolution` / `duration` / `inject_shape`: gguf-llm-direct と同じ shape ヘッダー注入
 - サンプリング: `temperature` / `top_p` / `max_new_tokens` / `seed`（`seed > 0` のとき `torch.manual_seed` で決定性を確保。`temperature=0.0` は greedy になる）
 - モデルは 1 つ常駐、切り替え時に前のモデルを解放（`gc.collect()` + `torch.cuda.empty_cache()`）
-- thinking のリアルタイム表示: api-llm-direct と同じノード内ウィジェット
+- thinking のリアルタイム表示: `llm-thinking-preview` ノードへ接続（下記参照）
 
 ### 注意
 
 - **`transformers` のインストールが必要**（`AutoModelForCausalLM` / `AutoTokenizer` / `TextIteratorStreamer`）。未インストール時はノードがエラーを返す
 - モデルに chat template が無い場合のメッセージ整形は transformers のデフォルトに委ねる
 - ロードは `device_map="auto"` + `torch_dtype=torch.bfloat16`（CUDA 時）/ `float32`（CPU 時）
+
+## llm-thinking-preview
+
+LLM ノード（gguf / api / hf）の thinking ストリームをリアルタイム表示するノード。Python 側は純粋なパススルーで、表示は `web/llm-direct.js` が WebSocket イベント（`llm_direct_reasoning`）経由で描画する。
+
+### 使い方
+
+1. LLM ノードの `text` 出力を `llm-thinking-preview` の `text` 入力へ接続
+2. 生成中、接続元 LLM ノードの思考テキストがプレビューノード内にリアルタイム表示される
+3. `text` 出力は入力をそのまま返すので、後段にそのまま繋げられる
+
+### 注意
+
+- 旧バージョンの「LLM ノード内 inline 表示ウィジェット」は廃止された。既存ワークフローで表示したい場合はプレビューノードを追加して接続すること
+- 表示は実行中のみ更新され、ワークフローの保存対象にはならない
 
 ## requirements
 
