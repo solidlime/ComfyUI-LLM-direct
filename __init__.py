@@ -91,6 +91,18 @@ def _gguf_choices():
     return [p for p in folder_paths.get_filename_list("llm_gguf") if p.lower().endswith(".gguf")]
 
 
+def _resolve_mmproj_handler(mmproj_path):
+    """Return an MTMD chat handler for the given mmproj GGUF, or None."""
+    if not mmproj_path.strip():
+        return None
+    try:
+        from llama_cpp.llama_chat_format import MTMDChatHandler
+    except ImportError as exc:
+        raise ValueError("gguf-llm-direct: マルチモーダルには llama-cpp-python >= 0.3.10 が必要です") from exc
+    full = folder_paths.get_full_path("llm_gguf", mmproj_path.strip()) or mmproj_path.strip()
+    return MTMDChatHandler(clip_model_path=full, verbose=False)
+
+
 def _hf_choices():
     # Only CausalLM directories: Llava/joycaption/florence-style models do not
     # load through AutoModelForCausalLM. Light json.load on config.json only.
@@ -148,6 +160,12 @@ class GGUFLLMDirect:
                 # only meaningful for H3-style prompt rewriting tasks.
                 "inject_shape": ("BOOLEAN", {"default": True}),
             },
+            "optional": {
+                "image": ("IMAGE",),
+                "video": ("VIDEO",),
+                "video_frames": ("INT", {"default": 4, "min": 1, "max": 32}),
+                "mmproj_path": ("STRING", {"default": ""}),
+            },
         }
 
     RETURN_TYPES = ("STRING",)
@@ -158,8 +176,8 @@ class GGUFLLMDirect:
     _cache = {}
 
     @classmethod
-    def _get_llm(cls, model_path, n_ctx, n_gpu_layers, n_threads, flash_attn, n_batch, use_mmap):
-        key = (model_path, n_ctx, n_gpu_layers, n_threads, flash_attn, n_batch, use_mmap)
+    def _get_llm(cls, model_path, n_ctx, n_gpu_layers, n_threads, flash_attn, n_batch, use_mmap, mmproj_path=""):
+        key = (model_path, n_ctx, n_gpu_layers, n_threads, flash_attn, n_batch, use_mmap, mmproj_path)
         llm = cls._cache.get(key)
         if llm is None:
             # Drop any previously loaded model first: keeping more than one
@@ -167,7 +185,7 @@ class GGUFLLMDirect:
             # old model's VRAM is freed before the new one is allocated.
             cls._cache.clear()
             gc.collect()
-            llm = Llama(
+            kwargs = dict(
                 model_path=folder_paths.get_full_path("llm_gguf", model_path),
                 n_ctx=n_ctx,
                 n_gpu_layers=n_gpu_layers,
@@ -177,6 +195,10 @@ class GGUFLLMDirect:
                 mmap=use_mmap,
                 verbose=False,
             )
+            handler = _resolve_mmproj_handler(mmproj_path)
+            if handler is not None:
+                kwargs["chat_handler"] = handler
+            llm = Llama(**kwargs)
             cls._cache[key] = llm
         return llm
 
@@ -184,26 +206,49 @@ class GGUFLLMDirect:
                  enable_thinking=False, strip_think=True, temperature=0.6, top_p=0.9, top_k=64,
                  min_p=0.05, repeat_penalty=1.1, max_tokens=4096, n_ctx=4096, n_gpu_layers=99,
                  n_threads=4, n_batch=256, flash_attn=True, use_mmap=False, seed=0,
-                 unload_after_run=False, inject_shape=True):
-        llm = self._get_llm(model_path, n_ctx, n_gpu_layers, n_threads, flash_attn, n_batch, use_mmap)
-        messages = openai_client.build_messages(system_prompt, user_input, resolution, duration, inject_shape)
-        # Call the template handler directly so enable_thinking reaches the
-        # model's Jinja template (create_chat_completion drops extra kwargs).
-        handler = llm._chat_handlers.get("chat_template.default")
-        resp = handler(
-            llama=llm,
-            messages=messages,
-            temperature=temperature,
-            top_p=top_p,
-            top_k=top_k,
-            min_p=min_p,
-            repeat_penalty=repeat_penalty,
-            max_tokens=max_tokens,
-            stop=list(_START_STOPS),
-            seed=seed if seed > 0 else None,
-            enable_thinking=bool(enable_thinking),
-            stream=True,
-        )
+                 unload_after_run=False, inject_shape=True,
+                 image=None, video=None, video_frames=4, mmproj_path=""):
+        has_media = image is not None or video is not None
+        if has_media and not mmproj_path.strip():
+            raise ValueError("gguf-llm-direct: 画像/動画入力には mmproj_path の指定が必要です")
+        llm = self._get_llm(model_path, n_ctx, n_gpu_layers, n_threads, flash_attn, n_batch, use_mmap, mmproj_path)
+        uris = media.collect_data_uris(image=image, video=video, video_frames=video_frames)
+        messages = openai_client.build_messages(system_prompt, user_input, resolution, duration, inject_shape, image_uris=uris)
+        if mmproj_path.strip():
+            # Custom MTMD handler path: create_chat_completion drops extra
+            # kwargs, so call the handler directly (same as below).
+            resp = llm.chat_handler(
+                llama=llm,
+                messages=messages,
+                temperature=temperature,
+                top_p=top_p,
+                top_k=top_k,
+                min_p=min_p,
+                repeat_penalty=repeat_penalty,
+                max_tokens=max_tokens,
+                stop=list(_START_STOPS),
+                seed=seed if seed > 0 else None,
+                enable_thinking=bool(enable_thinking),
+                stream=True,
+            )
+        else:
+            # Call the template handler directly so enable_thinking reaches the
+            # model's Jinja template (create_chat_completion drops extra kwargs).
+            handler = llm._chat_handlers.get("chat_template.default")
+            resp = handler(
+                llama=llm,
+                messages=messages,
+                temperature=temperature,
+                top_p=top_p,
+                top_k=top_k,
+                min_p=min_p,
+                repeat_penalty=repeat_penalty,
+                max_tokens=max_tokens,
+                stop=list(_START_STOPS),
+                seed=seed if seed > 0 else None,
+                enable_thinking=bool(enable_thinking),
+                stream=True,
+            )
         text = ""
         for chunk in resp:
             # Delta has no "content" on the role-only first chunk and the
