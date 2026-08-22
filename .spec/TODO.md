@@ -30,7 +30,7 @@
   - `build_multimodal_content(text, image_uris=None) -> str | list` — uris 無し= str そのまま、有り= content 配列
   - `collect_data_uris(image=None, video=None, video_frames=4) -> list[str]` — ノード側の1行呼び出し用。video は `get_stream_source()` を持つオブジェクト（duck typing）
 
-- [ ] **Step 1: 失敗するテストを書く**
+- [x] **Step 1: 失敗するテストを書く**
 
 ```python
 """Tests for media helpers: tensor->URI conversion, video frame sampling,
@@ -206,12 +206,12 @@ def test_collect_image_and_video(fake_av):
     assert len(uris) == 3  # 1 image + 2 frames
 ```
 
-- [ ] **Step 2: テストが失敗することを確認**
+- [x] **Step 2: テストが失敗することを確認**
 
 Run: `cd tests; python -m pytest test_media.py -v`
 Expected: FAIL（media モジュールが存在しない）
 
-- [ ] **Step 3: media.py を実装**
+- [x] **Step 3: media.py を実装**
 
 ```python
 """Pure-logic media helpers: convert ComfyUI IMAGE batches and video sources
@@ -312,12 +312,12 @@ def collect_data_uris(image=None, video=None, video_frames=4):
 
 注意: `extract_video_frames_to_data_uris` 内で `wanted` が未定義になる経路（例外時に except へ飛ぶ）はないが、`total<=0` のとき `wanted=None` なので最後の `if wanted is None` 分岐とセットで動く。変数スコープは with ブロック外で参照するため、try 直前で `wanted = None` に初期化しておくこと（実装時に確認）。
 
-- [ ] **Step 4: テストが通ることを確認**
+- [x] **Step 4: テストが通ることを確認**
 
 Run: `cd tests; python -m pytest test_media.py -v`
 Expected: PASS 全件
 
-- [ ] **Step 5: コミット**
+- [x] **Step 5: コミット**
 
 ```bash
 git add media.py tests/test_media.py
@@ -336,7 +336,7 @@ git commit -m "feat: media.py 共通メディアモジュール（画像/動画�
 - Consumes: `media.build_multimodal_content(text, image_uris)`（Task 1）
 - Produces: `build_messages(system_prompt, user_input, resolution, duration, inject_shape, image_uris=None)` — 第6引数追加、デフォルト None で後方互換
 
-- [ ] **Step 1: 失敗するテストを書く**（tests/test_openai_client.py 末尾に追記）
+- [x] **Step 1: 失敗するテストを書く**（tests/test_openai_client.py 末尾に追記）
 
 ```python
 # --- build_messages multimodal ----------------------------------------------
@@ -362,12 +362,12 @@ def test_build_messages_empty_uris_keeps_string():
     assert messages == [{"role": "user", "content": "hi"}]
 ```
 
-- [ ] **Step 2: 失敗確認**
+- [x] **Step 2: 失敗確認**
 
 Run: `cd tests; python -m pytest test_openai_client.py -k image_uris -v`
 Expected: FAIL（TypeError: unexpected keyword argument）
 
-- [ ] **Step 3: 実装**（openai_client.py の build_messages を置換）
+- [x] **Step 3: 実装**（openai_client.py の build_messages を置換）
 
 ```python
 def build_messages(system_prompt, user_input, resolution, duration, inject_shape, image_uris=None):
@@ -382,12 +382,12 @@ def build_messages(system_prompt, user_input, resolution, duration, inject_shape
 
 注: `import media` はファイル先頭ではなく関数内でも可（循環なし・遅延読み込み）。先頭に置いても壊れないが、既存の httpx 以外の import を増やさない方針なら関数内でよい。**決定: ファイル先頭に `import media` を追加**（openai_client は純粋モジュールで media も純粋、循環なし）。
 
-- [ ] **Step 4: 全テスト確認**
+- [x] **Step 4: 全テスト確認**
 
 Run: `cd tests; python -m pytest -v`
 Expected: PASS（既存 build_messages テスト含め全緑＝後方互換の証明）
 
-- [ ] **Step 5: コミット**
+- [x] **Step 5: コミット**
 
 ```bash
 git add openai_client.py tests/test_openai_client.py
@@ -406,7 +406,7 @@ git commit -m "feat: build_messages マルチモーダル対応（image_uries �
 - Consumes: `media.collect_data_uris`, `openai_client.build_messages(..., image_uris=)`
 - Produces: なし（末端）
 
-- [ ] **Step 1: INPUT_TYPES に optional 追加**（`__init__.py` 冒頭に `import media` を追加した上で）
+- [x] **Step 1: INPUT_TYPES に optional 追加**（`__init__.py` 冒頭に `import media` を追加した上で）
 
 ```python
             "optional": {
@@ -416,7 +416,7 @@ git commit -m "feat: build_messages マルチモーダル対応（image_uries �
             },
 ```
 
-- [ ] **Step 2: generate シグネチャと本文を変更**
+- [x] **Step 2: generate シグネチャと本文を変更**
 
 ```python
     def generate(self, base_url, model, system_prompt, user_input, api_key="", resolution="9:16",
@@ -429,12 +429,12 @@ git commit -m "feat: build_messages マルチモーダル対応（image_uries �
 
 以降の行は無変更。payload は content 配列をそのまま通す。
 
-- [ ] **Step 3: 全テスト実行（回帰確認）**
+- [x] **Step 3: 全テスト実行（回帰確認）**
 
 Run: `cd tests; python -m pytest -v`
 Expected: PASS
 
-- [ ] **Step 4: コミット**
+- [x] **Step 4: コミット**
 
 ```bash
 git add __init__.py
@@ -452,7 +452,7 @@ git commit -m "feat: api-llm-direct 画像/動画入力対応"
 - Consumes: `media.collect_data_uris`, `openai_client.build_messages(..., image_uris=)`
 - Produces: `_get_llm(model_path, ..., mmproj_path)` — キャッシュキーに mmproj_path を含める
 
-- [ ] **Step 1: INPUT_TYPES に optional 追加**（Task 3 と同一ブロック構造）
+- [x] **Step 1: INPUT_TYPES に optional 追加**（Task 3 と同一ブロック構造）
 
 ```python
             "optional": {
@@ -463,7 +463,7 @@ git commit -m "feat: api-llm-direct 画像/動画入力対応"
             },
 ```
 
-- [ ] **Step 2: mtmd ハンドラ解決ヘルパーを追加**（クラス外・`_gguf_choices` 付近）
+- [x] **Step 2: mtmd ハンドラ解決ヘルパーを追加**（クラス外・`_gguf_choices` 付近）
 
 ```python
 def _resolve_mmproj_handler(mmproj_path):
@@ -478,7 +478,7 @@ def _resolve_mmproj_handler(mmproj_path):
 
 バージョンガード: `MTMDChatHandler` の import 失敗（<0.3.10）を except ImportError で捕まえ、`ValueError("gguf-llm-direct: マルチモーダルには llama-cpp-python >= 0.3.10 が必要です")` を投げること。
 
-- [ ] **Step 3: _get_llm を拡張**
+- [x] **Step 3: _get_llm を拡張**
 
 キャッシュキーに `mmproj_path` を追加し、handler が解決できたら `Llama(chat_handler=...)` を渡す:
 
@@ -503,7 +503,7 @@ def _resolve_mmproj_handler(mmproj_path):
         return llm
 ```
 
-- [ ] **Step 4: generate を変更**
+- [x] **Step 4: generate を変更**
 
 ```python
     def generate(self, model_path, system_prompt, user_input, resolution="9:16", duration=10,
@@ -536,12 +536,12 @@ def _resolve_mmproj_handler(mmproj_path):
 
 ⚠️ 既知リスク（実機確認事項）: MTMDChatHandler が `enable_thinking` をテンプレートへ透過しない場合、VLM モデルでは thinking 切替が効かない可能性。機能劣害は「thinking 常時有効」程度で許容し、Task 6 の実機スモークで確認する。
 
-- [ ] **Step 5: 全テスト実行**
+- [x] **Step 5: 全テスト実行**
 
 Run: `cd tests; python -m pytest -v`
 Expected: PASS
 
-- [ ] **Step 6: コミット**
+- [x] **Step 6: コミット**
 
 ```bash
 git add __init__.py
@@ -561,7 +561,7 @@ git commit -m "feat: gguf-llm-direct 画像/動画入力対応（mmproj + mtmd �
 - Consumes: `media.collect_data_uris`, `openai_client.build_messages(..., image_uris=)`
 - Produces: `hf_client.build_inputs(processor, messages)` — 戻り値は tensor または dict（BatchFeature）; `run_generate(model, inputs, ...)` — inputs が dict なら `generate(**inputs)` 形式に展開
 
-- [ ] **Step 1: テストを更新・追加**
+- [x] **Step 1: テストを更新・追加**
 
 FakeTokenizer を戻り値切替可能にし、新テストを追加:
 
@@ -609,12 +609,12 @@ def test_run_generate_dict_inputs_expanded():
 
 既存 `test_build_inputs_calls_apply_chat_template` は新シグネチャに合わせ更新（kwargs アサーションを return_dict パスのものに変更）。
 
-- [ ] **Step 2: 失敗確認**
+- [x] **Step 2: 失敗確認**
 
 Run: `cd tests; python -m pytest test_hf_client.py -v`
 Expected: FAIL
 
-- [ ] **Step 3: hf_client.py を実装**
+- [x] **Step 3: hf_client.py を実装**
 
 ```python
 def build_inputs(processor, messages):
@@ -645,7 +645,7 @@ run_generate は `input_ids=input_ids` 行を以下に変更:
 
 （引数名 `input_ids` → `inputs` に変更、docstring 更新）
 
-- [ ] **Step 4: _hf_choices を VLM 対応に拡張**（`__init__.py:112` の条件を変更）
+- [x] **Step 4: _hf_choices を VLM 対応に拡張**（`__init__.py:112` の条件を変更）
 
 ```python
             if any(("ForCausalLM" in a) or ("ForConditionalGeneration" in a) for a in architectures):
@@ -654,7 +654,7 @@ run_generate は `input_ids=input_ids` 行を以下に変更:
 
 コメントも更新（Llava 除外の説明を VLM 含む旨に書き換え）。
 
-- [ ] **Step 5: HFLLMDirect のモデルロードを VLM 対応に**
+- [x] **Step 5: HFLLMDirect のモデルロードを VLM 対応に**
 
 `__init__.py` の transformers import に追加:
 
@@ -683,7 +683,7 @@ _get_model 内、アーキテクチャ判定してロードクラスを切替:
         model = loader.from_pretrained(path, device_map="auto", torch_dtype=dtype)
 ```
 
-- [ ] **Step 6: HFLLMDirect.generate を配線**
+- [x] **Step 6: HFLLMDirect.generate を配線**
 
 INPUT_TYPES に Task 3 と同一の optional ブロック（mmproj なし）を追加し:
 
@@ -695,12 +695,12 @@ INPUT_TYPES に Task 3 と同一の optional ブロック（mmproj なし）を�
 
 run_generate 呼び出しの第2引数を `inputs` に変更。以降無変更。
 
-- [ ] **Step 7: 全テスト実行**
+- [x] **Step 7: 全テスト実行**
 
 Run: `cd tests; python -m pytest -v`
 Expected: PASS
 
-- [ ] **Step 8: コミット**
+- [x] **Step 8: コミット**
 
 ```bash
 git add hf_client.py __init__.py tests/test_hf_client.py
@@ -714,19 +714,21 @@ git commit -m "feat: hf-llm-direct VLM 対応（ForConditionalGeneration + retur
 **Files:**
 - Modify: `README.md`（マルチモーダル入力の説明追加）
 
-- [ ] **Step 1: README 更新** — 3ノードの optional 入力（image/video/video_frames、gguf は mmproj_path）、対応モデル例（Qwen2.5-VL 等）、動画はフレーム抽出方式である旨を追記
-- [ ] **Step 2: 全テスト実行** — `cd tests; python -m pytest -v` → 全緑
-- [ ] **Step 3: 実機スモーク（ComfyUI 起動環境で）**
+- [x] **Step 1: README 更新** — 3ノードの optional 入力（image/video/video_frames、gguf は mmproj_path）、対応モデル例（Qwen2.5-VL 等）、動画はフレーム抽出方式である旨を追記
+- [x] **Step 2: 全テスト実行** — `cd tests; python -m pytest -v` → 全緑
+- [x] **Step 3: 実機スモーク（ComfyUI 起動環境で）**
+  > 注記: メディアパイプライン（tensor→data URI、動画フレーム抽出、content 配列組み立て）はユニットテストで検証済み。VLM モデル実推論（api/gguf/hf の実機生成）はユーザー環境での確認事項として残す。
   1. api ノード + ローカル VLM サーバー（例: vLLM/Qwen2.5-VL）で LoadImage → 画像1枚の説明生成を確認
   2. gguf ノード + Qwen2.5-VL GGUF + mmproj で同様に確認（enable_thinking の透過可否も観察）
   3. メディア未接続の既存ワークフローが従来通り動くことを確認
-- [ ] **Step 4: コミット + プッシュ**
+- [x] **Step 4: コミット + プッシュ**
 
 ```bash
 git add README.md .spec/
-git commit -m "docs: マルチモーダル対応の README 更新"
-git push
+git commit -m "docs: マルチモーダル対応の README 同期"
 ```
+
+> 注記: push はユーザー指示により未実施。コミットメッセージは計画の「README 更新」から「README 同期」に変更。
 
 ---
 

@@ -6,9 +6,23 @@ LLM 呼び出しをシンプルに直接行う ComfyUI カスタムノード集�
 
 - **gguf-llm-direct**: llama_cpp 直叩きのローカル GGUF 推論ノード
 - **api-llm-direct**: OpenAI 互換 API を httpx 直叩きするノード
-- **hf-llm-direct**: transformers 直読みのローカル HF モデルノード（CausalLM のみ）
+- **hf-llm-direct**: transformers 直読みのローカル HF モデルノード（CausalLM / VLM）
 
 プリセットなし・クリーンアップパイプラインなし。モデルの応答をそのまま返す。
+
+## マルチモーダル入力（画像・動画）
+
+3 ノードすべてに `image`（IMAGE）/ `video`（VIDEO）/ `video_frames` の optional 入力がある。未接続なら従来どおりテキストのみで動作し、既存ワークフローに影響しない。
+
+- `video` は指定フレーム数（デフォルト 4、最大 32）を均等サンプリングで抽出し、複数画像として送信
+- **音声入力は未対応**（将来課題）
+- 内部の `media.py` が `av` / `numpy` / `Pillow` を使用（いずれも ComfyUI 本体同梱。requirements.txt に明記済み）
+
+ノードごとの差異:
+
+- **api-llm-direct**: OpenAI 互換マルチモーダル API にそのまま送信する。vision 対応モデルが必要
+- **gguf-llm-direct**: `mmproj_path`（optional）にマルチモーダル GGUF 用の mmproj ファイル名を指定する。画像/動画入力時は必須で、未指定ならエラーになる。`llama-cpp-python >= 0.3.10` が必要。対応モデル例: Qwen2.5-VL / LLaVA 系
+- **hf-llm-direct**: VLM アーキテクチャ（`ForConditionalGeneration` / ImageTextToText）もモデル一覧に列挙される。VLM モデルは `AutoProcessor` 経由で chat template を適用し pixel_values を生成する
 
 ## api-llm-direct
 
@@ -39,7 +53,7 @@ Hugging Face transformers でローカルモデルを直接実行するノード
 ### 使い方
 
 - `model`: `models/LLM` 直下のディレクトリから選択（combo）
-  - **CausalLM モデルのみ対応**: `config.json` の `architectures` に `ForCausalLM` を含むディレクトリのみ列挙（Llava / joycaption / florence 等の vision 系は除外）
+  - `config.json` の `architectures` に `ForCausalLM` または `ForConditionalGeneration`（VLM）を含むディレクトリを列挙（それ以外の vision 系は除外）。VLM モデルはマルチモーダル入力と組み合わせて使用できる
 - `system_prompt` / `user_input` / `resolution` / `duration` / `inject_shape`: gguf-llm-direct と同じ shape ヘッダー注入
 - サンプリング: `temperature` / `top_p` / `max_new_tokens` / `seed`（`seed > 0` のとき `torch.manual_seed` で決定性を確保。`temperature=0.0` は greedy になる）
 - モデルは 1 つ常駐、切り替え時に前のモデルを解放（`gc.collect()` + `torch.cuda.empty_cache()`）
