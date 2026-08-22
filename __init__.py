@@ -41,10 +41,12 @@ _RESOLUTIONS = ("21:9", "16:9", "4:3", "1:1", "3:4", "9:16")
 # transformers is not installed.
 try:
     from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
+    from transformers import AutoModelForImageTextToText
 except ImportError:
     AutoModelForCausalLM = None
     AutoTokenizer = None
     TextIteratorStreamer = None
+    AutoModelForImageTextToText = None
 
 
 def _register_gguf_folder():
@@ -104,8 +106,9 @@ def _resolve_mmproj_handler(mmproj_path):
 
 
 def _hf_choices():
-    # Only CausalLM directories: Llava/joycaption/florence-style models do not
-    # load through AutoModelForCausalLM. Light json.load on config.json only.
+    # CausalLM and image-text-to-text (VLM) directories: Llava/joycaption/
+    # florence-style models that fit neither class are still excluded.
+    # Light json.load on config.json only.
     choices = []
     for base in folder_paths.get_folder_paths("llm_hf"):
         base = Path(base)
@@ -122,7 +125,7 @@ def _hf_choices():
                     architectures = json.load(f).get("architectures", [])
             except (OSError, ValueError):
                 continue
-            if any("ForCausalLM" in a for a in architectures):
+            if any(("ForCausalLM" in a) or ("ForConditionalGeneration" in a) for a in architectures):
                 choices.append(entry.name)
     return choices
 
@@ -339,6 +342,11 @@ class HFLLMDirect:
                 "max_new_tokens": ("INT", {"default": 1024, "min": 1, "max": 65536}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 2**32 - 1}),
             },
+            "optional": {
+                "image": ("IMAGE",),
+                "video": ("VIDEO",),
+                "video_frames": ("INT", {"default": 4, "min": 1, "max": 32}),
+            },
         }
 
     RETURN_TYPES = ("STRING",)
@@ -362,7 +370,17 @@ class HFLLMDirect:
         path = str(Path(folder_paths.get_folder_paths("llm_hf")[0]) / model_name)
         try:
             dtype = hf_client.torch.bfloat16 if hf_client.torch.cuda.is_available() else hf_client.torch.float32
-            model = AutoModelForCausalLM.from_pretrained(path, device_map="auto", torch_dtype=dtype)
+            config_path = Path(path) / "config.json"
+            arch = ""
+            if config_path.is_file():
+                try:
+                    arch = "".join(json.load(config_path.open(encoding="utf-8")).get("architectures", []))
+                except (OSError, ValueError):
+                    pass
+            loader = AutoModelForImageTextToText if (
+                "ForConditionalGeneration" in arch and AutoModelForImageTextToText is not None
+            ) else AutoModelForCausalLM
+            model = loader.from_pretrained(path, device_map="auto", torch_dtype=dtype)
             tokenizer = AutoTokenizer.from_pretrained(path)
         except Exception as exc:
             cls._cache.clear()
@@ -375,16 +393,18 @@ class HFLLMDirect:
 
     def generate(self, model, system_prompt, user_input, resolution="9:16", duration=10,
                  inject_shape=True, strip_think=True,
-                 temperature=0.6, top_p=0.9, max_new_tokens=1024, seed=0):
+                 temperature=0.6, top_p=0.9, max_new_tokens=1024, seed=0,
+                 image=None, video=None, video_frames=4):
         if AutoModelForCausalLM is None:
             # An empty combo never reaches this path, so guard here too.
             raise ValueError("hf-llm-direct: transformers がインストールされていません")
         model_obj, tokenizer = self._get_model(model)
-        messages = openai_client.build_messages(system_prompt, user_input, resolution, duration, inject_shape)
-        input_ids = hf_client.build_inputs(tokenizer, messages)
+        uris = media.collect_data_uris(image=image, video=video, video_frames=video_frames)
+        messages = openai_client.build_messages(system_prompt, user_input, resolution, duration, inject_shape, image_uris=uris)
+        inputs = hf_client.build_inputs(tokenizer, messages)
         streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
         text = hf_client.run_generate(
-            model_obj, input_ids, streamer, max_new_tokens, temperature, top_p, seed,
+            model_obj, inputs, streamer, max_new_tokens, temperature, top_p, seed,
             on_text=lambda t: _send_reasoning(openai_client.split_before_think_end(t)),
         )
         if strip_think:

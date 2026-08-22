@@ -12,17 +12,29 @@ except ImportError:
     torch = None
 
 
-def build_inputs(tokenizer, messages):
-    """Tokenize a chat message list through the tokenizer's chat template."""
-    return tokenizer.apply_chat_template(
-        messages, tokenize=True, return_tensors="pt", add_generation_prompt=True
-    )
+def build_inputs(processor, messages):
+    """Tokenize a chat message list through the processor's chat template.
+
+    Returns a tensor (older transformers / text-only fallback) or a dict-like
+    BatchFeature (multimodal: input_ids + pixel_values etc.).
+    """
+    try:
+        return processor.apply_chat_template(
+            messages, tokenize=True, return_dict=True, add_generation_prompt=True
+        )
+    except (TypeError, ValueError):
+        # transformers too old for return_dict support
+        return processor.apply_chat_template(
+            messages, tokenize=True, return_tensors="pt", add_generation_prompt=True
+        )
 
 
-def run_generate(model, input_ids, streamer, max_new_tokens, temperature, top_p,
+def run_generate(model, inputs, streamer, max_new_tokens, temperature, top_p,
                  seed, on_text=None):
     """Run model.generate on a worker thread, feeding the streamer.
 
+    inputs is a tensor or a dict-like BatchFeature from build_inputs; dict
+    inputs are expanded into generate kwargs (input_ids + pixel_values etc.).
     Exceptions raised on the worker thread are collected and re-raised as a
     ValueError on the caller thread after the stream is drained, so a
     mid-generation OOM does not die silently in a background thread.
@@ -32,7 +44,6 @@ def run_generate(model, input_ids, streamer, max_new_tokens, temperature, top_p,
     def _generate():
         try:
             kwargs = dict(
-                input_ids=input_ids,
                 streamer=streamer,
                 max_new_tokens=max_new_tokens,
                 top_p=top_p,
@@ -40,6 +51,10 @@ def run_generate(model, input_ids, streamer, max_new_tokens, temperature, top_p,
                 # non-positive temperature in TemperatureLogitsWarper.
                 do_sample=temperature > 0,
             )
+            if isinstance(inputs, dict):
+                kwargs.update(inputs)
+            else:
+                kwargs["input_ids"] = inputs
             if temperature > 0:
                 kwargs["temperature"] = temperature
             if seed > 0:

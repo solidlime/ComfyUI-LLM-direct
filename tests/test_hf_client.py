@@ -62,11 +62,14 @@ class FakeTensor:
 
 
 class FakeTokenizer:
-    def __init__(self):
+    def __init__(self, return_dict=False):
         self.calls = []
+        self.return_dict = return_dict
 
     def apply_chat_template(self, messages, **kwargs):
         self.calls.append((messages, kwargs))
+        if self.return_dict:
+            return {"input_ids": "ids", "attention_mask": "mask"}
         return "tokenized-inputs"
 
 
@@ -81,12 +84,41 @@ def test_build_inputs_calls_apply_chat_template():
     assert tokenizer.calls[0][0] == messages
     assert tokenizer.calls[0][1] == {
         "tokenize": True,
-        "return_tensors": "pt",
+        "return_dict": True,
         "add_generation_prompt": True,
     }
 
 
+def test_build_inputs_return_dict_when_supported():
+    tok = FakeTokenizer(return_dict=True)
+    result = hf_client.build_inputs(tok, [{"role": "user", "content": "hi"}])
+    assert result == {"input_ids": "ids", "attention_mask": "mask"}
+    assert tok.calls[0][1]["return_dict"] is True
+
+
+def test_build_inputs_falls_back_without_return_dict():
+    class NoDictTok(FakeTokenizer):
+        def apply_chat_template(self, messages, **kwargs):
+            if kwargs.get("return_dict"):
+                raise TypeError("unexpected keyword")
+            return super().apply_chat_template(messages, **kwargs)
+
+    tok = NoDictTok()
+    result = hf_client.build_inputs(tok, [{"role": "user", "content": "hi"}])
+    assert result == "tokenized-inputs"
+    assert tok.calls[-1][1]["return_tensors"] == "pt"
+
+
 # --- run_generate ---------------------------------------------------------
+
+
+def test_run_generate_dict_inputs_expanded():
+    model = FakeModel()
+    streamer = FakeStreamer()
+    hf_client.run_generate(model, {"input_ids": "ids", "attention_mask": "mask"},
+                           streamer, 100, 0.6, 0.9, 0)
+    assert model.kwargs["input_ids"] == "ids"
+    assert model.kwargs["attention_mask"] == "mask"
 
 
 def test_run_generate_accumulates_text_and_calls_on_text():
