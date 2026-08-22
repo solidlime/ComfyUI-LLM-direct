@@ -137,19 +137,28 @@ class GGUFLLMDirect:
     def INPUT_TYPES(cls):
         return {
             "required": {
+                # 基本
                 "model_path": (_gguf_choices(),),
                 "system_prompt": ("STRING", {"multiline": True, "default": ""}),
                 "user_input": ("STRING", {"multiline": True}),
+                # プロンプト形状
                 "resolution": (_RESOLUTIONS, {"default": "9:16"}),
                 "duration": ("INT", {"default": 10, "min": 1, "max": 15}),
+                # Off for plain LLM use: the resolution/duration header is
+                # only meaningful for H3-style prompt rewriting tasks.
+                "inject_shape": ("BOOLEAN", {"default": True}),
+                # 思考・出力
                 "enable_thinking": ("BOOLEAN", {"default": False}),
                 "strip_think": ("BOOLEAN", {"default": True}),
+                # サンプリング
                 "temperature": ("FLOAT", {"default": 0.6, "min": 0.0, "max": 2.0, "step": 0.01}),
                 "top_p": ("FLOAT", {"default": 0.9, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "top_k": ("INT", {"default": 64, "min": 0, "max": 512}),
                 "min_p": ("FLOAT", {"default": 0.05, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "repeat_penalty": ("FLOAT", {"default": 1.1, "min": 0.0, "max": 2.0, "step": 0.01}),
                 "max_tokens": ("INT", {"default": 4096, "min": 256, "max": 65536}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 2**32 - 1}),
+                # llama 起動（上級）
                 "n_ctx": ("INT", {"default": 4096, "min": 512, "max": 131072}),
                 "n_gpu_layers": ("INT", {"default": 99, "min": 0, "max": 999}),
                 "n_threads": ("INT", {"default": 4, "min": 1, "max": 32}),
@@ -159,11 +168,8 @@ class GGUFLLMDirect:
                 # (visible as disk-usage spikes while ComfyUI is running).
                 # Loading the file into RAM up front removes that I/O.
                 "use_mmap": ("BOOLEAN", {"default": False}),
-                "seed": ("INT", {"default": 0, "min": 0, "max": 2**32 - 1}),
+                # 運用
                 "unload_after_run": ("BOOLEAN", {"default": False}),
-                # Off for plain LLM use: the resolution/duration header is
-                # only meaningful for H3-style prompt rewriting tasks.
-                "inject_shape": ("BOOLEAN", {"default": True}),
             },
             "optional": {
                 "image": ("IMAGE",),
@@ -208,10 +214,11 @@ class GGUFLLMDirect:
         return llm
 
     def generate(self, model_path, system_prompt, user_input, resolution="9:16", duration=10,
-                 enable_thinking=False, strip_think=True, temperature=0.6, top_p=0.9, top_k=64,
-                 min_p=0.05, repeat_penalty=1.1, max_tokens=4096, n_ctx=4096, n_gpu_layers=99,
-                 n_threads=4, n_batch=256, flash_attn=True, use_mmap=False, seed=0,
-                 unload_after_run=False, inject_shape=True,
+                 inject_shape=True, enable_thinking=False, strip_think=True,
+                 temperature=0.6, top_p=0.9, top_k=64,
+                 min_p=0.05, repeat_penalty=1.1, max_tokens=4096, seed=0,
+                 n_ctx=4096, n_gpu_layers=99, n_threads=4, n_batch=256,
+                 flash_attn=True, use_mmap=False, unload_after_run=False,
                  image=None, video=None, video_frames=4, mmproj_path=""):
         has_media = image is not None or video is not None
         if has_media and not mmproj_path.strip():
@@ -421,6 +428,24 @@ class HFLLMDirect:
         return (text,)
 
 
+class LLMThinkingPreview:
+    """Realtime thinking display node. The WS stream is rendered by the JS
+    extension (web/llm-direct.js); the Python side is a pure passthrough.
+    The input link identifies which LLM node's stream to show."""
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"text": ("STRING", {"forceInput": True})}}
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("text",)
+    FUNCTION = "passthrough"
+    CATEGORY = "LLM"
+
+    def passthrough(self, text):
+        return (text,)
+
+
 NODE_CLASS_MAPPINGS["GGUFLLMDirect"] = GGUFLLMDirect
 NODE_DISPLAY_NAME_MAPPINGS["GGUFLLMDirect"] = "gguf-llm-direct"
 
@@ -429,6 +454,9 @@ NODE_DISPLAY_NAME_MAPPINGS["APILLMDirect"] = "api-llm-direct"
 
 NODE_CLASS_MAPPINGS["HFLLMDirect"] = HFLLMDirect
 NODE_DISPLAY_NAME_MAPPINGS["HFLLMDirect"] = "hf-llm-direct"
+
+NODE_CLASS_MAPPINGS["LLMThinkingPreview"] = LLMThinkingPreview
+NODE_DISPLAY_NAME_MAPPINGS["LLMThinkingPreview"] = "llm-thinking-preview"
 
 WEB_DIRECTORY = "./web"
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
